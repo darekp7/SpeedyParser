@@ -528,10 +528,10 @@ namespace T102
         public static string Escape(string str, char quoteChar)
         {
             StringBuilder res = new StringBuilder();
-            if(quoteChar == '\'' || quoteChar == '"')
+            if (quoteChar == '\'' || quoteChar == '"')
                 res.Append(quoteChar);
-            if(str != null)
-                for(int i=0; i < str.Length; i++)
+            if (str != null)
+                for (int i = 0; i < str.Length; i++)
                     switch (str[i])
                     {
                         case '\0':
@@ -559,10 +559,10 @@ namespace T102
                             res.Append("\\v");
                             break;
                         case '"':
-                            res.Append((quoteChar != '\'')? "\\\"" : "\"");
+                            res.Append((quoteChar != '\'') ? "\\\"" : "\"");
                             break;
                         case '\'':
-                            res.Append((quoteChar != '"')? "\\'" : "'");
+                            res.Append((quoteChar != '"') ? "\\'" : "'");
                             break;
                         case '\\':
                             res.Append("\\\\");
@@ -571,7 +571,7 @@ namespace T102
                             res.Append(str[i]);
                             break;
                     }
-            if(quoteChar == '\'' || quoteChar == '"')
+            if (quoteChar == '\'' || quoteChar == '"')
                 res.Append(quoteChar);
             return res.ToString();
         }
@@ -597,8 +597,8 @@ namespace T102
         /// </summary>
         public static int FirstIndexNot(string str, string excludeList)
         {
-            for(int i=0; i < str.Length; i++)
-                if(!(excludeList.IndexOf(str[i]) >= 0 || excludeList.IndexOf(' ') >= 0 && char.IsWhiteSpace(str[i])))
+            for (int i = 0; i < str.Length; i++)
+                if (!(excludeList.IndexOf(str[i]) >= 0 || excludeList.IndexOf(' ') >= 0 && char.IsWhiteSpace(str[i])))
                     return i;
             return -1;
         }
@@ -1445,7 +1445,7 @@ namespace T102
             DEFINE_WEAK_DIRECTIVE = ((defineWeakDirective ?? "").Trim() == "") ? null : defineWeakDirective.Trim();
             INCLUDE_DIRECTIVE = ((includeDirective ?? "").Trim() == "") ? null : includeDirective.Trim();
 
-            string strFrom = (defineStrongDirective ?? "") + (defineWeakDirective ?? "")  + (includeDirective ?? "");
+            string strFrom = (defineStrongDirective ?? "") + (defineWeakDirective ?? "") + (includeDirective ?? "");
             string identChars = "_";
             for (int i = 0; i < strFrom.Length; i++)
             {
@@ -1461,7 +1461,7 @@ namespace T102
             try
             {
                 var src = T102SrcSlice.ReadAllLines(fname, fileEncoding);
-                return PreprocessSlice(src, fileEncoding, YamlValue.MakeNull(), null);
+                return PreprocessSlice(src, fileEncoding, null, null);
             }
             catch (T102SourceLine.ExceptionAtLn ex)
             {
@@ -1488,7 +1488,7 @@ namespace T102
 
         public T102SrcSlice PreprocessSlice(T102SrcSlice src, Encoding fileEncoding)
         {
-            return PreprocessSlice(src, fileEncoding, YamlValue.MakeNull(), null);
+            return PreprocessSlice(src, fileEncoding, null, null);
         }
 
         private class IncludeTraceItem
@@ -1529,9 +1529,9 @@ namespace T102
             }
         }
 
-        private T102SrcSlice PreprocessSlice(T102SrcSlice src, Encoding fileEncoding, YamlValue defines_par, IncludeTraceItem trace_list)
+        private T102SrcSlice PreprocessSlice(T102SrcSlice src, Encoding fileEncoding, T102Dict<string, string> defines_par, IncludeTraceItem trace_list)
         {
-            YamlValue defines = (defines_par.MyType == YamlValue.ValueType.Dict)? defines_par : YamlValue.MakeDict();
+            var defines = defines_par ?? new T102Dict<string, string>();
             List<T102SourceLine> res = new List<T102SourceLine>();
             for (int i_ln = 0; i_ln < src.Count; i_ln++)
             {
@@ -1546,14 +1546,14 @@ namespace T102
                     if (DEFINE_STRONG_DIRECTIVE != null && reader.TestToken(DEFINE_STRONG_DIRECTIVE ?? "%%define", PREPRO_IDENT_CHARS, null))
                     {
                         string key = reader.GetPrintableSequenceOrQuotedStr();
-                        defines.SetStringAtKey(key, reader.ReadToEnd().Trim());
+                        defines.SetAt(key, reader.ReadToEnd().Trim());
                         done = true;
                     }
                     else if (DEFINE_WEAK_DIRECTIVE != null && reader.TestToken(DEFINE_WEAK_DIRECTIVE ?? "%%define?", PREPRO_IDENT_CHARS, null))
                     {
                         string key = reader.GetPrintableSequenceOrQuotedStr();
                         if (!defines.ContainsKey(key))
-                            defines.SetStringAtKey(key, reader.ReadToEnd().Trim());
+                            defines.SetAt(key, reader.ReadToEnd().Trim());
                         done = true;
                     }
                     else if (INCLUDE_DIRECTIVE != null && reader.TestToken(INCLUDE_DIRECTIVE ?? "%%include", PREPRO_IDENT_CHARS, null))
@@ -1573,8 +1573,8 @@ namespace T102
                         res.Add(src.SourceAt(i_ln));
                 }
             }
-            if (defines_par.IsNull) // finally, if this is top-level call of PreprocessSlice() do StringReplace()
-                defines.ForEachKeyValueString((key, inx, val) =>
+            if (defines_par == null) // finally, if this is top-level call of PreprocessSlice() do StringReplace()
+                defines.ForEach((key, inx, val) =>
                 {
                     for (int i = 0; i < res.Count; i++)
                         res[i] = res[i].CloneSetText(res[i].Text.Replace(key, val));
@@ -1594,8 +1594,8 @@ namespace T102
             return res;
         }
 
-        private T102SrcSlice GetInclSource(string fname, string str_at, Encoding fileEncoding, 
-            YamlValue defines, IncludeTraceItem trace_list, T102SourceLine src_line)
+        private T102SrcSlice GetInclSource(string fname, string str_at, Encoding fileEncoding,
+            T102Dict<string, string> defines, IncludeTraceItem trace_list, T102SourceLine src_line)
         {
             str_at = (str_at ?? "").Trim();
 
@@ -1613,8 +1613,8 @@ namespace T102
                     }
                 if (!found)
                 {
-                    throw src_line.CreateException(string.Format("Label {0} not found in file {1}", str_at, fname));
-                    return new T102SrcSlice(new T102SourceLine[] { }, 0, 0, fname);
+                    throw src_line.CreateException(string.Format("Invalid include directive: label {0} not found in file {1}", str_at, fname));
+                    //return new T102SrcSlice(new T102SourceLine[] { }, 0, 0, fname);
                 }
             }
 
@@ -1824,1087 +1824,88 @@ namespace T102
     }
 
     /// <summary>
-    /// Unlike System.Collections.Generic.Dictionary, this struct preserves keys order
+    /// Unlike System.Collections.Generic.Dictionary, this class preserves keys order
     /// and allows parallel reading (including iterations) by different threads
     /// at the same time.
     /// </summary>
-    struct YamlValue
+    class T102Dict<TKey, TValue>
     {
-        public enum ValueType
-        {
-            Null,
-            String,
-            List,
-            Dict
-        }
+        private readonly Dictionary<TKey, TValueWithInx> FDict = new Dictionary<TKey,TValueWithInx>();
+        private readonly List<TKey> FKeys = new List<TKey>();
 
-        private string MyText;
-        private List<YamlValue> MyList;
-        private Dictionary<string, YamlValue> MyDict;
-        private int IndexInDictKeys;
-
-        public static YamlValue MakeNull()
+        private struct TValueWithInx
         {
-            return new YamlValue
+            public readonly TValue Value;
+            public readonly int KeyIndex;
+            public TValueWithInx(TValue val, int inx)
             {
-                MyText = null,
-                MyList = null,
-                MyDict = null,
-                IndexInDictKeys = 0
-            };
-        }
-
-        public static YamlValue MakeString(string str)
-        {
-            return new YamlValue
-            {
-                MyText = str ?? "",
-                MyList = null,
-                MyDict = null,
-                IndexInDictKeys = 0
-            };
-        }
-
-        public static YamlValue MakeList()
-        {
-            return new YamlValue
-            {
-                MyText = null,
-                MyList = new List<YamlValue>(),
-                MyDict = null,
-                IndexInDictKeys = 0
-            };
-        }
-
-        public static YamlValue MakeDict()
-        {
-            return new YamlValue
-            {
-                MyText = null,
-                MyList = new List<YamlValue>(),
-                MyDict = new Dictionary<string, YamlValue>(),
-                IndexInDictKeys = 0
-            };
-        }
-
-        public bool IsNull
-        {
-            get
-            {
-                return MyText == null && MyList == null && MyDict == null;
+                Value = val;
+                KeyIndex = inx;
             }
         }
 
-        public ValueType MyType
+        public bool ContainsKey(TKey k)
         {
-            get
-            {
-                if (MyText != null)
-                    return ValueType.String;
-                if (MyDict != null)
-                    return ValueType.Dict;
-                if (MyList != null)
-                    return ValueType.List;
-                return ValueType.Null;
-            }
+            return FDict.ContainsKey(k);
         }
 
-        public int Count
+        public void SetAt(TKey k, TValue v)
         {
-            get
-            {
-                if (MyText != null)
-                    return MyText.Length;
-                if (MyDict != null)
-                    return MyDict.Count;
-                if (MyList != null)
-                    return MyList.Count;
-                return 0;
-            }
-        }
-
-        public override string ToString()
-        {
-            switch (MyType)
-            {
-                case ValueType.Null:
-                    return "";
-                case ValueType.String:
-                    return MyText;
-                default:
-                    return QuotedString();
-            }
-        }
-
-        private string QuotedStringIfNeed(bool isYaml)
-        {
-            return (isYaml && MyType == ValueType.String && !T102BasicLexerAPI.NeedsQuotation(MyText)) ? MyText : QuotedString();
-        }
-
-        /// <summary>
-        /// Returns single-line expression equivalent this value.
-        /// </summary>
-        public string QuotedString()
-        {
-            switch (MyType)
-            {
-                case ValueType.Null:
-                    return "null";
-                case ValueType.String:
-                    return T102BasicLexerAPI.Escape(MyText, '"');
-                case ValueType.List:
-                    StringBuilder sbl = new StringBuilder("[");
-                    for (int i = 0; i < MyList.Count; i++)
-                    {
-                        if (i > 0)
-                            sbl.Append(", ");
-                        sbl.Append(MyList[i].QuotedString());
-                    }
-                    return sbl.Append("]").ToString();
-                case ValueType.Dict:
-                    StringBuilder sbd = new StringBuilder("{");
-                    bool first = true;
-                    foreach (KeyValuePair<string, YamlValue> entry in MyDict)
-                    {
-                        if (!first)
-                            sbd.Append(", ");
-                        sbd.Append(T102BasicLexerAPI.IsIdentifier(entry.Key, "_") ? entry.Key : T102BasicLexerAPI.Escape(entry.Key, '"')).Append(": ");
-                        sbd.Append(entry.Value.QuotedString());
-                        first = false;
-                    }
-                    return sbd.Append("}").ToString();
-                default:
-                    throw new Exception(string.Format("QuotedString(): invalid value type {0}", MyType));
-            }
-        }
-
-        public List<string> ToLines(int indent)
-        {
-            List<string> res = new List<string>();
-            ToLines(indent, isYaml: false, res: res, fromListItem: false);
-            return res;
-        }
-
-        public List<string> ToYaml()
-        {
-            List<string> res = new List<string>();
-            ToLines(0, isYaml: true, res: res, fromListItem: false);
-            return res;
-        }
-
-        private void ToLines(int indent, bool isYaml, List<string> res, bool fromListItem)
-        {
-            switch (MyType)
-            {
-                case ValueType.Null:
-                    res.Add(string.Format("{0}{1}", new string(' ', indent), QuotedString()));
-                    break;
-                case ValueType.String:
-                    res.Add(string.Format("{0}{1}", new string(' ', indent), QuotedStringIfNeed(isYaml)));
-                    break;
-                case ValueType.List:
-                    if (Count <= 0)
-                        res.Add(new string(' ', indent) + "[]");
-                    else
-                    {
-                        if (indent > 2)
-                            indent -= 2;
-                        ForEach((key, i, val) =>
-                        {
-                            if (val.FmtIsShortValue())
-                                res.Add(string.Format("{0}-{1} {2}", new string(' ', indent),
-                                    (val.MyType != ValueType.List && val.MyType != ValueType.Dict) ? ":" : "",
-                                    val.QuotedStringIfNeed(isYaml)));
-                            else
-                            {
-                                res.Add(string.Format("{0}-", new string(' ', indent)));
-                                val.ToLines(indent + 2, isYaml, res, true);
-                            }
-                        });
-                    }
-                    break;
-                case ValueType.Dict:
-                    if (Count <= 0)
-                    {
-                        if (fromListItem && res.Count > 0)
-                            res[res.Count - 1] += " {}";
-                        else
-                            res.Add(new string(' ', indent) + "{}");
-                    }
-                    else
-                    {
-                        int max_key_len = MaxKeyLength();
-                        ForEach((key, i, val) =>
-                        {
-                            string keyStr = ((T102BasicLexerAPI.IsIdentifier(key, "_")) ? key : T102BasicLexerAPI.Escape(key, '"')) + ":";
-                            if (max_key_len > keyStr.Length - 1)
-                                keyStr += new string(' ', max_key_len - keyStr.Length + 1);
-                            if (val.FmtIsShortValue())
-                            {
-                                if (fromListItem)
-                                    res[res.Count - 1] += string.Format(" {0} {1}", keyStr, val.QuotedStringIfNeed(isYaml));
-                                else
-                                    res.Add(string.Format("{0}{1} {2}", new string(' ', indent), keyStr, val.QuotedStringIfNeed(isYaml)));
-                            }
-                            else
-                            {
-                                if (fromListItem && res.Count > 0)
-                                    res[res.Count - 1] += string.Format(" {0}", keyStr);
-                                else
-                                    res.Add(string.Format("{0}{1}", new string(' ', indent), keyStr));
-                                val.ToLines(indent + 4, isYaml, res, false);
-                            }
-                            fromListItem = false;
-                        });
-                    }
-                    break;
-            }
-        }
-
-        private bool FmtIsShortValue()
-        {
-            switch (MyType)
-            {
-                case ValueType.Null:
-                case ValueType.String:
-                    return true;
-                case ValueType.List:
-                case ValueType.Dict:
-                    return Count <= 0;
-                default:
-                    return false;
-            }
-        }
-
-        public YamlValue ItemAtInx(int i)
-        {
-            if (MyText != null)
-                return MakeString((i >= 0 && i < MyText.Length) ? MyText.Substring(i, 1) : "");
-            if (MyList == null || MyDict != null)
-                throw new Exception("Invalid use of ItemAtInx (operator[]): value must be a list or a string");
-            return (i >= 0 && i < MyList.Count) ? MyList[i] : MakeNull();
-        }
-
-        public void SetAtInx(int i, YamlValue val)
-        {
-            if (MyList == null || MyDict != null)
-                throw new Exception("Invalid use of SetAtInx (operator[]): value must be a list");
-            if (i >= 0 && i < MyList.Count)
-                MyList[i] = val;
-            else
-                MyList.Add(val);
-        }
-
-        public void InsertAtInx(int i, YamlValue val)
-        {
-            if (MyList == null || MyDict != null)
-                throw new Exception("Invalid use of InsertAtInx (operator[]): value must be a list");
-            if (i >= 0 && i < MyList.Count)
-                MyList.Insert(i, val);
-            else
-                MyList.Add(val);
-        }
-
-        public void RemoveAtInx(int i)
-        {
-            if (MyList == null || MyDict != null)
-                throw new Exception("Invalid use of RemoveAtInx (operator[]): value must be a list");
-            if (i >= 0 && i < MyList.Count)
-                MyList.RemoveAt(i);
-        }
-
-        public bool ContainsKey(string key)
-        {
-            return MyDict != null && MyDict.ContainsKey(key);
-        }
-
-        public YamlValue ItemAtKey(string key)
-        {
-            if (MyDict == null)
-                throw new Exception("Invalid use of ItemAtKey (operator[]): value must be a ditionary");
-            YamlValue res;
-            return (MyDict.TryGetValue(key, out res)) ? res : MakeNull();
-        }
-
-        public void SetStringAtKey(string key, string val)
-        {
-            SetAtKey(key, MakeString(val));
-        }
-
-        public void SetAtKey(string key, YamlValue val)
-        {
-            key = key ?? "";
-            if (MyDict == null)
-                throw new Exception("Invalid use of SetAtKey (operator[]): value must be a ditionary");
-            YamlValue old;
-            if (MyDict.TryGetValue(key, out old))
-            {
-                val.IndexInDictKeys = old.IndexInDictKeys;
-                MyDict[key] = val;
-            }
+            TValueWithInx v2;
+            if (FDict.TryGetValue(k, out v2))
+                FDict[k] = new TValueWithInx(v, v2.KeyIndex);
             else
             {
-                // RebuildKeys(); <-- not necessary when adding item
-                val.IndexInDictKeys = MyDict.Count;
-                MyDict[key] = val;
-                MyList.Add(MakeString(key));
+                FDict[k] = new TValueWithInx(v, FKeys.Count);
+                FKeys.Add(k);
             }
         }
 
-        public void RemoveAtKey(string key)
+        private void Remove(TKey k)
         {
-            if (MyDict == null)
-                throw new Exception("Invalid use of RemoveAtKey (operator[]): value must be a ditionary");
-            YamlValue old;
-            if (MyDict.TryGetValue(key, out old))
+            TValueWithInx v2;
+            if (FDict.TryGetValue(k, out v2))
             {
-                MyDict.Remove(key);
-                MyList[old.IndexInDictKeys] = MakeNull();
+                FKeys[v2.KeyIndex] = default(TKey);
+                FDict.Remove(k);
                 RebuildKeys();
-            }
-        }
-
-        public YamlValue YamlClone()
-        {
-            switch (MyType)
-            {
-                case ValueType.Null:
-                case ValueType.String:
-                    return this;
-                case ValueType.List:
-                    YamlValue resList = MakeList();
-                    resList.MyList.AddRange(MyList);
-                    return resList;
-                case ValueType.Dict:
-                    YamlValue resDict = MakeDict();
-                    ForEach((k, i, val) =>
-                    {
-                        resDict.SetAtKey(k, val);
-                    });
-                    return resDict;
-                default:
-                    throw new Exception(string.Format("YamlValue.YamlClone: invalid type {0}", MyType));
-            }
-        }
-
-        public YamlValue OperatorPlus(YamlValue ym2, bool overwrite)
-        {
-            if(ym2.IsNull)
-                return YamlClone();
-            switch (MyType)
-            {
-                case ValueType.Null:
-                    return ym2.YamlClone();
-                case ValueType.String:
-                    return MakeString(MyText + ym2.ToString());
-                case ValueType.List:
-                    if(ym2.MyType != ValueType.List)
-                        throw new Exception(string.Format("Type mismatch: cannot append {0} to {1}", ym2.MyType, MyType));
-                    YamlValue resList = MakeList();
-                    resList.MyList.AddRange(MyList);
-                    resList.MyList.AddRange(ym2.MyList);
-                    return resList;
-                case ValueType.Dict:
-                    if(ym2.MyType != ValueType.Dict)
-                        throw new Exception(string.Format("Type mismatch: cannot append {0} to {1}", ym2.MyType, MyType));
-                    YamlValue resDict = MakeDict();
-                    ForEach((k, i, val) =>
-                    {
-                        resDict.SetAtKey(k, val);
-                    });
-                    ym2.ForEach((k, i, val) =>
-                    {
-                        if(overwrite || !resDict.MyDict.ContainsKey(k))
-                            resDict.SetAtKey(k, val);
-                    });
-                    return resDict;
-                default:
-                    throw new Exception(string.Format("YamlValue.AddRange: invalid type {0}", MyType));
             }
         }
 
         private void RebuildKeys()
         {
-            const int DELTA = 0;  /* //!!!
-            const int DELTA = 8; 
-            */
-            var keys = MyList;
-            if (keys.Count > MyDict.Count * 2 + DELTA)
+            if (FKeys.Count <= 8)
+                return;
+            long nk = FKeys.Count;
+            long nd = FDict.Count;
+            if (nk >= 2 * nd)
             {
-                int n_res = 0;
-                for (int i = 0; i < keys.Count; i++)
-                    if (!keys[i].IsNull)
-                        keys[n_res++] = keys[i];
-                while (keys.Count > n_res)
-                    keys.RemoveAt(keys.Count - 1);
-            }
-        }
-
-        public void ForEachKeyValueString(Action<string, int, string> body)
-        {
-            ForEach((key, i, val) =>
-            {
-                body(key, i, val.ToString());
-            });
-        }
-
-        public struct KvItem
-        {
-            public string Key;
-            public int Index;
-            public YamlValue Value;
-        };
-
-        public IEnumerable<KvItem> KeyValues()
-        {
-            switch (MyType)
-            {
-                case ValueType.String:
-                    for (int i = 0; i < MyText.Length; i++)
-                        yield return new KvItem { Key = "", Index = i, Value = MakeString(MyText[i].ToString()) };
-                    break;
-                case ValueType.List:
-                    for (int i = 0; i < MyList.Count; i++)
-                        yield return new KvItem { Key = "", Index = i, Value = MyList[i] };
-                    break;
-                case ValueType.Dict:
-                    var keys = MyList;
-                    int iter = 0;
-                    for (int i = 0; i < keys.Count; i++)
-                        if (!keys[i].IsNull)
-                        {
-                            string key = keys[i].MyText;
-                            YamlValue val;
-                            if (MyDict.TryGetValue(key, out val))
-                                yield return new KvItem { Key = key, Index = iter++, Value = val };
-                        }
-                    break;
-            }
-        }
-
-        public void ForEach(Action<string, int, YamlValue> body)
-        {
-            switch (MyType)
-            {
-                case ValueType.String:
-                    for (int i = 0; i < MyText.Length; i++)
-                        body("", i, MakeString(MyText[i].ToString()));
-                    break;
-                case ValueType.List:
-                    for (int i = 0; i < MyList.Count; i++)
-                        body("", i, MyList[i]);
-                    break;
-                case ValueType.Dict:
-                    var keys = MyList;
-                    int iter = 0;
-                    for (int i = 0; i < keys.Count; i++)
-                        if (!keys[i].IsNull)
-                        {
-                            string key = keys[i].MyText;
-                            YamlValue val;
-                            if (MyDict.TryGetValue(key, out val))
-                                body(key, iter++, val);
-                        }
-                    break;
-            }
-        }
-
-        public YamlValue DeleteWhere(Func<string, int, YamlValue, bool> whereDel)
-        {
-            switch (MyType)
-            {
-                case ValueType.Null:
-                    return this;
-                case ValueType.String:
-                    StringBuilder resSb = new StringBuilder();
-                    bool charDeleted = false;
-                    for (int i = 0; i < MyText.Length; i++)
-                        if (!whereDel("", i, MakeString(MyText[i].ToString())))
-                        {
-                            resSb.Append(MyText[i]);
-                            charDeleted = true;
-                        }
-                    return (charDeleted) ? YamlValue.MakeString(resSb.ToString()) : this;
-                case ValueType.List:
-                    for (int i = 0; i < MyList.Count; i++)
-                        if (whereDel("", i, MyList[i]))
-                            MyList.RemoveAt(i--);
-                    return this;
-                case ValueType.Dict:
-                    var keys = MyList;
-                    int iter = 0;
-                    for (int i = 0; i < keys.Count; i++)
-                        if (!keys[i].IsNull)
-                        {
-                            string key = keys[i].MyText;
-                            YamlValue val;
-                            if (MyDict.TryGetValue(key, out val))
-                                if (whereDel(key, iter++, val))
-                                    this.RemoveAtKey(key);
-                        }
-                    return this;
-                default:
-                    throw new Exception(string.Format("DeleteWhere: invalid type {0}", MyType));
-            }
-        }
-
-        public int MaxKeyLength()
-        {
-            switch (MyType)
-            {
-                case ValueType.Dict:
-                    int maxLen = 0;
-                    for(int i=0; i < MyList.Count; i++)
-                        if(MyList[i].MyText != null && MyList[i].MyText.Length > maxLen)
-                            maxLen = MyList[i].MyText.Length;
-                    return maxLen;
-                default:
-                    return 0;
-            }
-        }
-
-        public static YamlValue Parse(T102SrcSlice src, bool isYaml)
-        {
-            if (src.Count <= 0)
-                return YamlValue.MakeNull();
-            src.ThrowIfTabs();
-
-            List<YamlValue> list = new List<YamlValue>();
-            List<string> objectFieldNames = new List<string>();
-            List<YamlValue> objectFieldValues = new List<YamlValue>();
-            List<YamlValue> others = new List<YamlValue>();
-            int indent = src.GetIndentAt(0);
-            for (int i = 0; i < src.Count; i++)
-            {
-                if (T102BasicLexerAPI.IsWhiteSpaceOrEmpty(src.LineAt(i)))
-                    continue;
-                if (src.GetIndentAt(i) != indent)
-                    throw src.SourceAt(i).CreateException("Invalid indendation");
-                bool listItemBegin;
-                string fieldName;
-                string value;
-                if (T102BasicLexerAPI.YamlRecognizeLine(src.LineAt(i), true, out listItemBegin, out fieldName, out value))
+                TKey[] temp = new TKey[FDict.Count];
+                int n = 0;
+                for (int i = 0; i < FKeys.Count; i++)
                 {
-                    if (listItemBegin && fieldName != "") // member of object beeing list item
-                    {
-                        int fieldNameIndent = T102BasicLexerAPI.FirstIndexNot(src.LineAt(i), " -");
-                        int indent2 = src.GetIndentAt(i+1);
-                        if (indent2 == indent + 1 || indent2 == indent - 1 || indent2 == fieldNameIndent + 1 || indent2 == fieldNameIndent - 1)
-                            throw src.SourceAt(i + 1).CreateException("Invalid indentation, the indents cannot differ by 1");
-                        if (indent2 > indent) // with indent
-                        {
-                            var innerBlock = src.GetIndentedBlock(i, false);
-                            YamlValue indented = Parse(innerBlock, isYaml);
-                            i += innerBlock.Count;
-                            if (indented.MyType == ValueType.Dict && indent2 == fieldNameIndent)
-                            {
-                                YamlValue obj = YamlValue.MakeDict();
-                                obj.SetAtKey(fieldName, YamlValue.ParseExpression(value, isYaml));
-                                list.Add(obj.OperatorPlus(indented, true));
-                            }
-                            else
-                            {
-                                YamlValue obj = YamlValue.MakeDict();
-                                obj.SetAtKey(fieldName, YamlValue.ParseExpressionWithIndentedBlock(value, indented, innerBlock, isYaml));
-                                list.Add(obj);
-                            }
-                        }
-                        else
-                        {
-                            YamlValue obj = YamlValue.MakeDict();
-                            obj.SetAtKey(fieldName, YamlValue.ParseExpression(value, isYaml));
-                            list.Add(obj);
-                        }
-                    }
-                    else if(fieldName != "") // simple object member
-                    {
-                        int indent2 = src.GetIndentAt(i+1);
-                        if (indent2 == indent + 1 || indent2 == indent - 1)
-                            throw src.SourceAt(i + 1).CreateException("Invalid indentation, the indents cannot differ by 1");
-                        if (indent2 > indent) // with indent
-                        {
-                            var innerBlock = src.GetIndentedBlock(i, false);
-                            YamlValue indented = Parse(innerBlock, isYaml);
-                            i += innerBlock.Count;
-                            objectFieldNames.Add(fieldName);
-                            objectFieldValues.Add(YamlValue.ParseExpressionWithIndentedBlock(value, indented, innerBlock, isYaml));
-                        }
-                        else
-                        {
-                            objectFieldNames.Add(fieldName);
-                            objectFieldValues.Add(YamlValue.ParseExpression(value, isYaml));
-                        }
-                    }
-                    else  // list item
-                    {
-                        if (!listItemBegin)
-                            throw src.SourceAt(i).CreateException("Internal error, YamlRecognizeLine returned true for line describing neither object nor list item");
-                        int indent2 = src.GetIndentAt(i+1);
-                        if (indent2 == indent + 1 || indent2 == indent - 1)
-                            throw src.SourceAt(i + 1).CreateException("Invalid indentation, the indents cannot differ by 1");
-                        else if (indent2 <= indent && value.Trim() == "")
-                            throw src.SourceAt(i).CreateException("Missing list item value");
-                        else if (indent2 <= indent)
-                            list.Add(YamlValue.ParseExpression(value, isYaml));
-                        else
-                        {
-                            var innerBlock = src.GetIndentedBlock(i, false);
-                            YamlValue indented = Parse(innerBlock, isYaml);
-                            i += innerBlock.Count;
-                            list.Add((value.Trim() == "")? indented : YamlValue.ParseExpressionWithIndentedBlock(value, indented, innerBlock, isYaml));
-                        }
-                    }
+                    TValueWithInx v2;
+                    if (FDict.TryGetValue(FKeys[i], out v2) && v2.KeyIndex == i)
+                        temp[n++] = FKeys[i];
                 }
-                else // expression, not list item neither object
-                {
-                    int indent2 = src.GetIndentAt(i+1);
-                    if (indent2 == indent + 1 || indent2 == indent - 1)
-                        throw src.SourceAt(i + 1).CreateException("Invalid indentation, the indents cannot differ by 1");
-                    else if (indent2 <= indent)
-                        others.Add(YamlValue.ParseExpression(value, isYaml));
-                    else
-                    {
-                        var innerBlock = src.GetIndentedBlock(i, false);
-                        YamlValue indented = Parse(innerBlock, isYaml);
-                        i += innerBlock.Count;
-                        others.Add(YamlValue.ParseExpressionWithIndentedBlock(value, indented, innerBlock, isYaml));
-                    }
-                }
+                for (int i = 0; i < n; i++)
+                    FKeys[i] = temp[i];
+                while (FKeys.Count > n)
+                    FKeys.RemoveAt(FKeys.Count - 1);
             }
-
-            if (list.Count > 0 && objectFieldNames.Count <= 0 && others.Count <= 0)
-            {
-                YamlValue res = YamlValue.MakeList();
-                res.MyList.AddRange(list);
-                return res;
-            }
-            if (objectFieldNames.Count > 0 && list.Count <= 0 && others.Count <= 0)
-            {
-                YamlValue res = YamlValue.MakeDict();
-                for (int i = 0; i < objectFieldNames.Count; i++)
-                    res.SetAtKey(objectFieldNames[i], objectFieldValues[i]);
-                return res;
-            }
-            if (others.Count >= 0 && list.Count <= 0 && objectFieldNames.Count <= 0)
-            {
-                YamlValue res = YamlValue.MakeList();
-                for (int i = 0; i < others.Count; i++)
-                    res.SetAtInx(i, others[i]);
-                return res.ConvertToBlock();
-            }
-
-            if (list.Count > 0 && objectFieldNames.Count > 0)
-                throw src.SourceAt(0).CreateException("Invalid systax: list syntax mixed with object syntax");
-            if (list.Count > 0)
-                throw src.SourceAt(0).CreateException("Invalid systax: list items mixed with expression(s)");
-            throw src.SourceAt(0).CreateException("Invalid systax: object syntax mixed with expression(s)");
         }
 
-        public YamlValue ConvertToBlock()
+        public void ForEach(Action<TKey, int, TValue> body)
         {
-            // todo
-            return YamlValue.MakeNull();
-        }
-
-        public static YamlValue ParseExpression(string str, bool isYaml)
-        {
-            str = (str ?? "").Trim();
-            if (isYaml)
+            var keys = FKeys;
+            int iter = 0;
+            for (int i = 0; i < keys.Count; i++)
             {
-                if (str == "")
-                    return MakeNull();
-                if (str[0] == '|' || str[0] == '>')
-                {
-                    str = str.Substring(1).Trim();
-                    return YamlValue.MakeString(str);
-                }
-                if (str[0] == '"' || str[0] == '\'')
-                {
-                    str = str.Substring(1);
-                    if(str != "" && (str[str.Length-1] == '"' || str[str.Length-1] == '\''))
-                        str = str.Substring(0, str.Length-1);
-                    return YamlValue.MakeString(T102BasicLexerAPI.Unescape(str));
-                }
-                return YamlValue.MakeString(str.Trim());
-            }
-            // todo
-            return YamlValue.MakeNull();
-        }
-
-        public static YamlValue ParseExpressionWithIndentedBlock(string str, YamlValue indentedBlock, T102SrcSlice slcIndentedBlock, bool isYaml)
-        {
-            if (isYaml)
-            {
-                string str1 = str.Trim();
-                switch (str1)
-                {
-                    case "":
-                        return indentedBlock;
-                    case ">":
-                    case "|":
-                        string separator = (str1 == ">") ? " " : "\n";
-                        StringBuilder res = new StringBuilder();
-                        for (int i = 0; i < slcIndentedBlock.Count; i++)
-                        {
-                            if (i > 0)
-                                res.Append(separator);
-                            res.Append(slcIndentedBlock.LineAt(i).Trim());
-                        }
-                        return YamlValue.MakeString(res.ToString());
-                }
-            }
-
-            // todo
-            return YamlValue.MakeNull();
-        }
-    }
-
-    /*
-    struct YamlValue
-    {
-        public enum ValueType
-        {
-            Null,
-            Bool,
-            Number,
-            String,
-            List,
-            DictOrObject,
-            Block,
-            Expression
-        }
- 
-        private class UniqueIdentifier
-        {
-            private long Num1;
-            private long Num2;
-            private long Num3;
-            private long Num4;
- 
-            public bool IsZero_ThreadSafeAtomicityGuarantedByDotNetFramework;
- 
-            public UniqueIdentifier(long n1)
-            {
-                IsZero_ThreadSafeAtomicityGuarantedByDotNetFramework = n1 == 0;
-                Num1 = n1;
-                Num2 = Num3 = Num4 = 0;
-            }
- 
-            public override int GetHashCode()
-            {
-                return Num1.GetHashCode() ^ Num2.GetHashCode() ^ Num3.GetHashCode() ^ Num4.GetHashCode();
-            }
- 
-            public bool IsZero()
-            {
-                return Num1 == 0 && Num2 == 0 && Num3 == 0 && Num4 == 0;
-           }
- 
-            public int Spaceship(UniqueIdentifier uid2)
-            {
-                if (Num4 != uid2.Num4)
-                    return (Num4 > uid2.Num4) ? 1 : -1;
-                if (Num3 != uid2.Num3)
-                    return (Num3 > uid2.Num3) ? 1 : -1;
-                if (Num2 != uid2.Num2)
-                    return (Num2 > uid2.Num2) ? 1 : -1;
-                if (Num2 != uid2.Num2)
-                    return (Num2 > uid2.Num2) ? 1 : -1;
-                return 0;
-            }
- 
-            public void Increment(UniqueIdentifier saveCopy)
-            {
-                lock (this)
-                {
-                    if (Num1 < long.MaxValue)
-                        Num1++;
-                    else
-                    {
-                        Num1 = 0;
-                        if (Num2 < long.MaxValue)
-                            Num2++;
-                        else
-                        {
-                            Num2 = 0;
-                            if (Num3 < long.MaxValue)
-                                Num3++;
-                            else
-                            {
-                                Num3 = 0;
-                                if (Num4 < long.MaxValue)
-                                    Num4++;
-                                else
-                                {
-                                    Num4 = 0;
-                                    Num1 = 1;
-                                }
-                            }
-                        }
-                   }
-                    if (saveCopy != null)
-                    {
-                        saveCopy.IsZero_ThreadSafeAtomicityGuarantedByDotNetFramework = false;
-                        saveCopy.Num1 = Num1;
-                        saveCopy.Num2 = Num2;
-                        saveCopy.Num3 = Num3;
-                        saveCopy.Num4 = Num4;
-                    }
-                }
-            }
-        }
- 
-        private static readonly UniqueIdentifier UnqIdentSeed = new UniqueIdentifier(1);
- 
-        public ValueType Type;
-        private string Text;
-        private long Num;
-        private UniqueIdentifier MyUniqueId;
-        private List<YamlValue> Items;
-        private Dictionary<string, YamlValue> Fields;
- 
-        public static YamlValue CreateNull()
-        {
-            return new YamlValue
-            {
-                Type = ValueType.Null,
-                Text = null,
-                Num = 0,
-                MyUniqueId = null,
-                Items = null,
-                Fields = null
-            };
-        }
- 
-        public static YamlValue CreateBool(bool b)
-        {
-            return new YamlValue
-            {
-                Type = ValueType.Bool,
-                Text = null,
-                Num = 0,
-                MyUniqueId = null,
-                Items = null,
-                Fields = null
-            };
-        }
- 
-        public static YamlValue CreateNum(long n)
-        {
-            return new YamlValue
-            {
-                Type = ValueType.Number,
-                Text = null,
-                Num = n,
-                MyUniqueId = null,
-                Items = null,
-                Fields = null
-            };
-        }
- 
-        public static YamlValue CreateString(string str)
-        {
-            return new YamlValue
-            {
-                Type = ValueType.String,
-                Text = str ?? "",
-                Num = 0,
-                MyUniqueId = null,
-                Items = null,
-                Fields = null
-            };
-        }
- 
-        public static YamlValue CreateList()
-        {
-            return new YamlValue
-            {
-                Type = ValueType.List,
-                Text = null,
-                Num = 0,
-                MyUniqueId = new UniqueIdentifier(0),
-                Items = new List<YamlValue>(),
-                Fields = null
-            };
-        }
- 
-        public static YamlValue CreateDict()
-        {
-            return new YamlValue
-            {
-                Type = ValueType.DictOrObject,
-                Text = null,
-                Num = 0,
-                MyUniqueId = new UniqueIdentifier(0),
-                Items = new List<YamlValue>(),
-                Fields = new Dictionary<string,YamlValue>()
-            };
-        }
- 
-        public override bool Equals(object obj)
-        {
-            return (obj is YamlValue)? Spaceship((YamlValue)obj, true) == 0 : false;
-        }
- 
-        public override int GetHashCode()
-        {
-            switch (Type)
-            {
-                case ValueType.Null:
-                    return 1;
-                case ValueType.Bool:
-                    return (Num != 0).GetHashCode();
-                case ValueType.Number:
-                    return Num.GetHashCode();
-                case ValueType.String:
-                    return Text.GetHashCode();
-                case ValueType.List:
-                case ValueType.DictOrObject:
-                case ValueType.Block:
-                case ValueType.Expression:
-                    return GetUniqueId().GetHashCode();
-                default:
-                    throw new Exception("YamlValue.GetHashCode() - internal error: invalid type " + Type);
-            }
-        }
- 
-        public override string ToString()
-        {
-            switch (Type)
-            {
-                case ValueType.Null:
-                    return "";
-                case ValueType.Bool:
-                    return (Num != 0) ? "true" : "false";
-                case ValueType.Number:
-                    return Num.ToString();
-                case ValueType.String:
-                    return Text ?? "";
-                default:
-                    return string.Join("\n", ToLines());
-            }
-        }
- 
-        private UniqueIdentifier GetUniqueId()
-        {
-            if (!MyUniqueId.IsZero_ThreadSafeAtomicityGuarantedByDotNetFramework)
-                return MyUniqueId;
-            lock (UnqIdentSeed)
-            {
-                if (MyUniqueId.IsZero())
-                    UnqIdentSeed.Increment(MyUniqueId);
-                return MyUniqueId;
-            }
-        }
- 
-        public string[] ToLines()
-        {
-            switch (Type)
-            {
-                case ValueType.Null:
-                    return new[] { "null" };
-                case ValueType.Bool:
-                    return new string[] { (Num != 0) ? "true" : "false" };
-                case ValueType.Number:
-                    return new[] { Num.ToString() };
-                case ValueType.String:
-                    return new[] { Escape(Text, wrapInQuotes: true) };
-                case ValueType.List:
-                case ValueType.DictOrObject:
-                case ValueType.Block:
-                case ValueType.Expression:
-                default:
-                    throw new Exception("YamlValue.ToLines() - internal error: invalid type " + Type);
-            }
-        }
- 
-        public static string Escape(string str, bool wrapInQuotes)
-        {
-            str = str ?? "";
-            StringBuilder res = new StringBuilder(wrapInQuotes? "\"" : "");
-            for(int i=0; i < str.Length; i++)
-                switch (str[i])
-                {
-                    case '\0':
-                        res.Append("\\0");
-                        break;
-                    case '\a':
-                        res.Append("\\a");
-                        break;
-                    case '\b':
-                        res.Append("\\b");
-                        break;
-                    case '\f':
-                        res.Append("\\f");
-                        break;
-                    case '\n':
-                        res.Append("\\n");
-                        break;
-                    case '\r':
-                        res.Append("\\r");
-                        break;
-                    case '\t':
-                        res.Append("\\t");
-                        break;
-                    case '\v':
-                        res.Append("\\v");
-                        break;
-                    case '"':
-                        res.Append("\\\"");
-                        break;
-                    default:
-                        res.Append(str[i]);
-                        break;
-                }
-            return res.Append(wrapInQuotes? "\"" : "").ToString();
-        }
-       
-        public int Spaceship(YamlValue val, bool forEquality)
-        {
-            bool is_eq = Type == val.Type && Text == val.Text && Num == val.Num && object.ReferenceEquals(Items, val.Items) && object.ReferenceEquals(Fields, val.Fields);
-            if(is_eq)
-                return 0;
-            if(forEquality)
-                return -1;
-            if (Type != val.Type)
-                return (Type < val.Type) ? -1 : 1;
-            switch (Type)
-            {
-                case ValueType.Null:
-                    return -1;  // null is less than anything else
-                case ValueType.Bool:
-                case ValueType.Number:
-                    return (Num < val.Num) ? -1 : 1;
-                case ValueType.String:
-                    return string.Compare(Text, val.Text);
-                case ValueType.List:
-                case ValueType.DictOrObject:
-                    return GetUniqueId().Spaceship(val.GetUniqueId());
-                case ValueType.Block:
-                case ValueType.Expression:
-                default:
-                    throw new Exception("YamlValue.Spaceship() - internal error: invalid type " + Type);
-            }
-        }
- 
-        public bool IsValuesOnly()
-        {
-            switch (Type)
-            {
-                case ValueType.Null:
-                case ValueType.Bool:
-                case ValueType.Number:
-                case ValueType.String:
-                    return true;
-                case ValueType.List:
-                case ValueType.DictOrObject:
-                case ValueType.Block:
-                case ValueType.Expression:
-                default:
-                    throw new Exception("YamlValue.IsValuesOnly() - internal error: invalid type " + Type);
+                TValueWithInx v2;
+                if (FDict.TryGetValue(keys[i], out v2) && v2.KeyIndex == i)
+                    body(keys[i], iter++, v2.Value);
             }
         }
     }
-    */
 }
 
