@@ -1564,7 +1564,7 @@ namespace T102
                             string templ_path = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(src.SourceFileName), templ_name);
                             string str_at = reader.ReadToEnd().Trim();
                             if (!System.IO.File.Exists(templ_path))
-                                throw src.SourceAt(i_ln).CreateException(string.Format("File {0} (beeing a parameter of %%include) does not exist", templ_path));
+                                throw src.SourceAt(i_ln).CreateException(string.Format("File {0} (beeing a parameter of " + INCLUDE_DIRECTIVE + ") does not exist", templ_path));
                             res.AddRange(GetInclSource(templ_path, str_at, fileEncoding, defines, trace_list, src.SourceAt(i_ln)).RebaseIndent(indent).RemoveWhiteSpaceTail().ToList());
                             done = true;
                         }
@@ -1613,7 +1613,7 @@ namespace T102
                     }
                 if (!found)
                 {
-                    throw src_line.CreateException(string.Format("Invalid include directive: label {0} not found in file {1}", str_at, fname));
+                    throw src_line.CreateException(string.Format("Invalid " + INCLUDE_DIRECTIVE + " directive: label {0} not found in file {1}", str_at, fname));
                     //return new T102SrcSlice(new T102SourceLine[] { }, 0, 0, fname);
                 }
             }
