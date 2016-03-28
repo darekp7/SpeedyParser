@@ -15,15 +15,6 @@ namespace T102
         TOKEN_EOF
     }
 
-    /*struct T102Value
-    {
-        public T102TokenKind Token;
-        public string Text;
-        public T102Value[] SubItems;
-        private T102SrcLine[] Source;
-        private long PosInSrc;
-    }*/
-
     class T102SourceLine
     {
         public string Text;
@@ -1821,6 +1812,99 @@ namespace T102
                     res = GetIndentAt(i);
             return res;
         }
+
+        public T102SrcSlice MintPreprocessScript(bool use_include, Encoding fileEncoding)
+        {
+            T102SrcSlice res = this;
+            if (use_include)
+            {
+                T102Preprocessor prepro = new T102Preprocessor(
+                    defineStrongDirective: "",
+                    defineWeakDirective: "",
+                    includeDirective: "#include");
+                res = prepro.PreprocessSlice(res, fileEncoding);
+            }
+            return res.MintEatComments().MintMergeMultilines();
+        }
+
+        public T102SrcSlice MintMergeMultilines()
+        {
+            List<T102SourceLine> res = new List<T102SourceLine>();
+            for (int i_ln = 0; i_ln < Count; i_ln++)
+            {
+                string line = LineAt(i_ln);
+                string continuation;
+                while (i_ln < Count - 1 && MintLineIsMultilineContinuation(LineAt(i_ln + 1), out continuation))
+                {
+                    line = line + " " + continuation;
+                    i_ln++;
+                }
+                res.Add(SourceAt(i_ln).CloneSetText(line));
+            }
+            return new T102SrcSlice(res.ToArray(), 0, res.Count, SourceFileName);
+        }
+
+        private static bool MintLineIsMultilineContinuation(string line, out string str_out)
+        {
+            str_out = line.Trim();
+            int pos = 0;
+            char c = T102BasicLexerAPI.GotoPrintChar(line, ref pos, skipNL: true);
+            if (c == '\\')
+            {
+                str_out = line.Trim().Substring(1).Trim();
+                return true;
+            }
+            return c != '\0' && c != '_' && !char.IsLetterOrDigit(c);
+        }
+
+        public T102SrcSlice MintEatComments()
+        {
+            List<T102SourceLine> res = new List<T102SourceLine>();
+            for (int i_ln = 0; i_ln < Count; i_ln++)
+            {
+                string line = LineAt(i_ln);
+                if (!T102BasicLexerAPI.IsWhiteSpaceOrEmpty(line))
+                {
+                    int pos = 0;
+                    if (T102BasicLexerAPI.TestString("--", line, ref pos, skipNL: true))
+                        i_ln += GetIndentedBlock(i_ln, includeStartLn: false).Count;
+                    else
+                    {
+                        line = MintEatEolnComment(line);
+                        res.Add(SourceAt(i_ln).CloneSetText(line));
+                    }
+                }
+            }
+            return new T102SrcSlice(res.ToArray(), 0, res.Count, SourceFileName);
+        }
+
+        private static string MintEatEolnComment(string line)
+        {
+            char wrapping_quote = '\0';
+            for (int i = 0; i < line.Length; i++)
+                switch (line[i])
+                {
+                    case '-':
+                        if (wrapping_quote == '\0' && i < line.Length - 1 && line[i + 1] == '-')
+                            return line.Substring(0, i);
+                        break;
+                    case '\'':
+                        if (wrapping_quote == '"')
+                            break;
+                        wrapping_quote = (wrapping_quote == '\'')? '\0' : '\'';
+                        break;
+                    case '"':
+                        if (wrapping_quote == '\'')
+                            break;
+                        wrapping_quote = (wrapping_quote == '"') ? '\0' : '"';
+                        break;
+                    case '\\':
+                        if (wrapping_quote == '"')
+                            i++;
+                        break;
+                }
+            return line;
+        }
     }
 
     /// <summary>
@@ -1830,7 +1914,7 @@ namespace T102
     /// </summary>
     class T102Dict<TKey, TValue>
     {
-        private readonly Dictionary<TKey, TValueWithInx> FDict = new Dictionary<TKey,TValueWithInx>();
+        private readonly Dictionary<TKey, TValueWithInx> FDict = new Dictionary<TKey, TValueWithInx>();
         private readonly List<TKey> FKeys = new List<TKey>();
 
         private struct TValueWithInx
@@ -1908,4 +1992,6 @@ namespace T102
         }
     }
 }
+
+
 
