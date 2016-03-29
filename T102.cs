@@ -1816,6 +1816,7 @@ namespace T102
         public T102SrcSlice MintPreprocessScript(bool use_include, Encoding fileEncoding)
         {
             T102SrcSlice res = this;
+            res.MintCheckIndentation();
             if (use_include)
             {
                 T102Preprocessor prepro = new T102Preprocessor(
@@ -1823,8 +1824,26 @@ namespace T102
                     defineWeakDirective: "",
                     includeDirective: "#include");
                 res = prepro.PreprocessSlice(res, fileEncoding);
+                res.MintCheckIndentation();
             }
             return res.MintEatComments().MintMergeMultilines();
+        }
+
+        private void MintCheckIndentation()
+        {
+            List<int> list = new List<int>();
+            for (int i_ln = 0; i_ln < Count; i_ln++)
+                if (!T102BasicLexerAPI.IsWhiteSpaceOrEmpty(LineAt(i_ln)))
+                {
+                    int indent = GetIndentAt(i_ln);
+                    for (int ii = 0; ii < list.Count; ii++)
+                        if (indent == list[ii] - 1 || indent == list[ii] + 1)
+                            throw SourceAt(i_ln).CreateException(string.Format("Invalid indentation, two lines indents difference is +1 or -1."));
+                    while (list.Count > 0 && list[list.Count - 1] > indent)
+                        list.RemoveAt(list.Count - 1);
+                    if (list.Count <= 0 || indent > list[list.Count - 1])
+                        list.Add(indent);
+                }
         }
 
         public T102SrcSlice MintMergeMultilines()
@@ -1833,11 +1852,13 @@ namespace T102
             for (int i_ln = 0; i_ln < Count; i_ln++)
             {
                 string line = LineAt(i_ln);
+                int start_indent = GetIndentAt(i_ln);
                 string continuation;
                 while (i_ln < Count - 1 && MintLineIsMultilineContinuation(LineAt(i_ln + 1), out continuation))
                 {
+                    if(GetIndentAt(++i_ln) <= start_indent)
+                        throw SourceAt(i_ln).CreateException(string.Format("Invalid indentation"));
                     line = line + " " + continuation;
-                    i_ln++;
                 }
                 res.Add(SourceAt(i_ln).CloneSetText(line));
             }
