@@ -319,6 +319,45 @@ namespace T102
             return true;
         }
 
+        public static bool TrimIsEqual(string str, string strEq)
+        {
+            str = str ?? "";
+            strEq = strEq ?? "";
+            int pos = str.IndexOf(strEq);
+            if (pos < 0)
+                return false;
+            for (int i = 0; i < pos; i++)
+                if (!char.IsWhiteSpace(str[i]))
+                    return false;
+            for (int i = pos + strEq.Length; i < str.Length; i++)
+                if (!char.IsWhiteSpace(str[i]))
+                    return false;
+            return true;
+        }
+
+        public static bool TrimStartsWith(string str, string strFind)
+        {
+            for (int i = 0; i < str.Length; i++)
+                if (!char.IsWhiteSpace(str[i]))
+                    return SubstringIsEqualAt(str, i, strFind);
+            return false;
+        }
+
+        public static bool SubstringIsEqualAt(string str, int pos, string strEq)
+        {
+            return SubstringIsEqualAt(str, pos, strEq, strEq.Length);
+        }
+
+        public static bool SubstringIsEqualAt(string str, int pos, string strEq, int strEqLength)
+        {
+            if (pos + strEqLength > str.Length)
+                return false;
+            for (int i = 0; i < strEqLength; i++)
+                if (str[pos + i] != strEq[i])
+                    return false;
+            return true;
+        }
+
         public static bool IsIdentifier(string str, string extraIdentChars)
         {
             if (str == null)
@@ -1853,12 +1892,21 @@ namespace T102
             {
                 string line = LineAt(i_ln);
                 int start_indent = GetIndentAt(i_ln);
-                string continuation;
-                while (i_ln < Count - 1 && MintLineIsMultilineContinuation(LineAt(i_ln + 1), out continuation))
+                bool repeat = true;
+                while (repeat)
                 {
-                    if(GetIndentAt(++i_ln) <= start_indent)
-                        throw SourceAt(i_ln).CreateException(string.Format("Invalid indentation"));
-                    line = line + " " + continuation;
+                    repeat = false;
+                    string continuation;
+                    while (i_ln < Count - 1 && MintLineIsMultilineContinuation(LineAt(i_ln + 1), out continuation))
+                    {
+                        if (GetIndentAt(++i_ln) <= start_indent)
+                            throw SourceAt(i_ln).CreateException(string.Format("Invalid indentation"));
+                        line = line + " " + continuation;
+                        repeat = true;
+                    }
+                    if (i_ln < Count - 1 && GetIndentAt(i_ln + 1) > start_indent)
+                    {
+                    }
                 }
                 res.Add(SourceAt(i_ln).CloneSetText(line));
             }
