@@ -8,6 +8,10 @@ namespace TiramisuParser
     class TiramisuParser
     {
         private bool FCaseSensitive;
+        private bool FBracketSensitive;
+        private bool FQuotesSensitive;
+        private bool FDoubleQuoteIsCpp;
+        private bool FSingleQuoteIsCpp;
         private Dictionary<string, List<string>> FOutput;
         private string FUnboundVariableName = null;
         private int FUnboundVarStart = 0;
@@ -72,7 +76,7 @@ namespace TiramisuParser
                     else
                     {
                         while (!pattern.MatchTokensAtPos(str, ref str_pos, str_end, FCaseSensitive))
-                            if (!GotoNextMatchPos(str, ref str_pos, str_end) || GotoPrintChar(str, ref str_pos, str_end) == '\0')
+                            if (!GotoNextMatchPos(str, ref str_pos, str_end))
                                 return false;
                         SaveVariable(FUnboundVariableName, str.Substring(FUnboundVarStart, str_pos - FUnboundVarStart));
                         FUnboundVariableName = null;
@@ -143,23 +147,115 @@ namespace TiramisuParser
             return c == '_' || char.IsLetterOrDigit(c);
         }
 
+        private bool GotoNextMatchPos(string str, ref int pos, int end)
+        {
+            char c = GotoPrintChar(str, ref pos, end);
+            if (IsIdentChar(c))
+            {
+                while (IsIdentChar(str[++pos]))
+                    ;
+                return GotoPrintChar(str, ref pos, end) != '\0';
+            }
+            switch (c)
+            {
+                case '(':
+                case '[':
+                case '{':
+                    if (FBracketSensitive)
+                    {
+                        if (!FindClosingBracket(str, ref pos, end))
+                            return false;
+                        pos++;
+                    }
+                    return GotoPrintChar(str, ref pos, end) != '\0';
+                case '"':
+                case '\'':
+                    if (FQuotesSensitive)
+                    {
+                        if (!FindClosingQuote((c == '"')? FDoubleQuoteIsCpp : FSingleQuoteIsCpp, str, ref pos, end))
+                            return false;
+                        pos++;
+                    }
+                    return GotoPrintChar(str, ref pos, end) != '\0';
+                default:
+                    pos++;
+                    return GotoPrintChar(str, ref pos, end) != '\0';
+            }
+        }
+
+        private bool FindClosingBracket(string str, ref int pos, int end)
+        {
+            char bracket = str[pos++];
+            char closing_bracket;
+            switch (bracket)
+            {
+                case '(':
+                    closing_bracket = ')';
+                    break;
+                case '[':
+                    closing_bracket = ']';
+                    break;
+                case '{':
+                    closing_bracket = '}';
+                    break;
+                default:
+                    return false;
+            }
+            int n = 1;
+            for(; pos < end; pos++)
+                switch (str[pos])
+                {
+                    case '"':
+                    case '\'':
+                        if (FQuotesSensitive &&
+                            !FindClosingQuote((str[pos] == '"') ? FDoubleQuoteIsCpp : FSingleQuoteIsCpp, str, ref pos, end))
+                        {
+                            return false;
+                        }
+                        break;
+                    default:
+                        if (str[pos] == bracket)
+                            n++;
+                        else if (str[pos] == closing_bracket && --n <= 0)
+                            return true;
+                        break;
+                }
+            return false;
+        }
+
+        public static bool FindClosingQuote(bool styleCpp, string str, ref int pos, int end)
+        {
+            char quoteChar = str[pos++];
+            for (; pos < end; pos++)
+            {
+                char c = str[pos];
+                if (c == quoteChar)
+                    return true;
+                else if (styleCpp && c == '\\')
+                    pos++;
+            }
+            return false;
+        }
+
         private delegate bool MatchBoundFun(string str, ref int pos, int end);
 
         private bool MatchBoundVariable(string str, ref int str_pos, int str_end, string varName, MatchBoundFun matchFun)
         {
+            GotoPrintChar(str, ref str_pos, str_end);
             if (FUnboundVariableName == null)
             {
-                GotoPrintChar(str, ref str_pos, str_end);
                 int start_pos = str_pos;
                 if (!matchFun(str, ref str_pos, str_end))
                     return false;
                 SaveVariable(varName, str.Substring(start_pos, str_pos - start_pos));
+                return true;
             }
             else
             {
                 int savePos = str_pos;
                 while (!matchFun(str, ref str_pos, str_end))
                 {
+                    str_pos = savePos;
                     if (!GotoNextMatchPos(str, ref str_pos, str_end))
                         return false;
                     savePos = str_pos;
@@ -168,6 +264,7 @@ namespace TiramisuParser
                 FUnboundVariableName = null;
                 FUnboundVarStart = savePos;
                 SaveVariable(varName, str.Substring(savePos, str_pos - savePos));
+                return true;
             }
         }
 
