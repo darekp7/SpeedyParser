@@ -1,4 +1,17 @@
-﻿using System;
+﻿/*
+ * Simple parser.
+ * Author: Dariusz Pilarczyk
+ * Licence: public domain / WTFPL (http://www.wtfpl.net/about/)
+ * 
+ * Product description:
+ * This parser does not alloc memory on heap. For this reason:
+ * - it is very fast
+ * - it does not need any precompilation/preprocessing.
+ * 
+ * 
+ */
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
