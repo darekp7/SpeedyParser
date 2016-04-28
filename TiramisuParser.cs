@@ -12,6 +12,9 @@ namespace TiramisuParser
         private bool FQuotesSensitive;
         private bool FDoubleQuoteIsCpp;
         private bool FSingleQuoteIsCpp;
+        private bool FDoubleQuoteIsSql;
+        private bool FSingleQuoteIsSql;
+
         private Dictionary<string, List<string>> FOutput;
         private string FUnboundVariableName = null;
         private int FUnboundVarStart = 0;
@@ -32,6 +35,8 @@ namespace TiramisuParser
                     TokensEnd = pattern.Length;
                 TokensStart = 0;
                 GotoPrintChar(pattern, ref TokensStart, TokensEnd);
+                VarNames = null; // todo
+                VarTypes = null; // todo
             }
 
             public bool MatchTokensAtPos(string str, ref int str_pos, int str_end, bool caseSensitive)
@@ -162,21 +167,23 @@ namespace TiramisuParser
                 case '[':
                 case '{':
                     if (FBracketSensitive)
+                        return FindClosingBracket(str, ref pos, end);
+                    else
                     {
-                        if (!FindClosingBracket(str, ref pos, end))
-                            return false;
                         pos++;
+                        return GotoPrintChar(str, ref pos, end) != '\0';
                     }
-                    return GotoPrintChar(str, ref pos, end) != '\0';
                 case '"':
                 case '\'':
                     if (FQuotesSensitive)
+                        return FindClosingQuote(
+                            (c == '"') ? FDoubleQuoteIsCpp : FSingleQuoteIsCpp,
+                            (c == '"') ? FDoubleQuoteIsSql : FSingleQuoteIsSql, str, ref pos, end);
+                    else
                     {
-                        if (!FindClosingQuote((c == '"')? FDoubleQuoteIsCpp : FSingleQuoteIsCpp, str, ref pos, end))
-                            return false;
                         pos++;
+                        return GotoPrintChar(str, ref pos, end) != '\0';
                     }
-                    return GotoPrintChar(str, ref pos, end) != '\0';
                 default:
                     pos++;
                     return GotoPrintChar(str, ref pos, end) != '\0';
@@ -185,52 +192,50 @@ namespace TiramisuParser
 
         private bool FindClosingBracket(string str, ref int pos, int end)
         {
-            char bracket = str[pos++];
-            char closing_bracket;
-            switch (bracket)
-            {
-                case '(':
-                    closing_bracket = ')';
-                    break;
-                case '[':
-                    closing_bracket = ']';
-                    break;
-                case '{':
-                    closing_bracket = '}';
-                    break;
-                default:
-                    return false;
-            }
             int n = 1;
-            for(; pos < end; pos++)
+            for (pos++; pos < end; pos++)
                 switch (str[pos])
                 {
                     case '"':
                     case '\'':
-                        if (FQuotesSensitive &&
-                            !FindClosingQuote((str[pos] == '"') ? FDoubleQuoteIsCpp : FSingleQuoteIsCpp, str, ref pos, end))
+                        if (FQuotesSensitive && !FindClosingQuote(
+                                (str[pos] == '"') ? FDoubleQuoteIsCpp : FSingleQuoteIsCpp,
+                                (str[pos] == '"') ? FDoubleQuoteIsSql : FSingleQuoteIsSql, str, ref pos, end))
                         {
                             return false;
                         }
                         break;
-                    default:
-                        if (str[pos] == bracket)
-                            n++;
-                        else if (str[pos] == closing_bracket && --n <= 0)
+                    case '(':
+                    case '[':
+                    case '{':
+                        n++;
+                        break;
+                    case ')':
+                    case ']':
+                    case '}':
+                        if (--n <= 0)
+                        {
+                            pos++;
                             return true;
+                        }
                         break;
                 }
             return false;
         }
 
-        public static bool FindClosingQuote(bool styleCpp, string str, ref int pos, int end)
+        public static bool FindClosingQuote(bool styleCpp, bool styleSql, string str, ref int pos, int end)
         {
             char quoteChar = str[pos++];
             for (; pos < end; pos++)
             {
                 char c = str[pos];
-                if (c == quoteChar)
+                if (c == quoteChar && styleSql && pos + 1 < end && str[pos + 1] == quoteChar)
+                    pos++;
+                else if (c == quoteChar)
+                {
+                    pos++;
                     return true;
+                }
                 else if (styleCpp && c == '\\')
                     pos++;
             }
