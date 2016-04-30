@@ -8,12 +8,12 @@ using System.Text;
  * Author: Dariusz Pilarczyk (dpilarcz@gmail.com)
  * Licence: public domain / WTFPL (http://www.wtfpl.net/about/)
  * 
- * Product description:
- * This parser does not alloc memory on heap. For this reason:
- * - it is very fast
- * - it does not need any precompilation/preprocessing.
- * 
- * 
+ * Main features:
+ * - simple parser for extracting same information(s) from string
+ * - easy to learn regular expressions (not like Regex!)
+ * - good performance
+ * - requires no precompilation/preprocessing/time consuming initialization. Nothing like this. Just put pattern and use.
+ * - small amount of source code, everything is contained in one simple struct.
  */
 
 namespace ImmutableList
@@ -29,7 +29,6 @@ namespace ImmutableList
 
         private string[] SpeedyExpression;
         private int PatternsEnd;
-        private string[] HHH;
 
         public SpeedyParser(string[] speedyExpr)
         {
@@ -44,45 +43,66 @@ namespace ImmutableList
             PatternsEnd = SpeedyExpression.Length;
             while (PatternsEnd > 0 && IsNullOrTrimIsEmpty(SpeedyExpression[PatternsEnd - 1]))
                 PatternsEnd--;
-            HHH = new string[SpeedyExpression.Length];
         }
 
         public bool TryMatch(string str)
         {
+            ulong unboundVar = 0;
             int str_pos = 0;
             int patt_pos = 0;
-            return TryMatchPart(str, ref str_pos, str.Length, ref patt_pos, PatternsEnd)
+            return TryMatchPart(str, ref str_pos, str.Length, ref patt_pos, PatternsEnd, ref unboundVar)
                 && GotoPrintChar(str, ref str_pos, str.Length) == '\0';
         }
 
-        private bool TryMatchPart(string str, ref int str_pos, int str_end, ref int patt_pos, int patt_end)
+        private bool TryMatchPart(string str, ref int str_pos, int str_end, ref int patt_pos, int patt_end, ref ulong unboundVar)
         {
             for (; patt_pos < patt_end; patt_pos++)
             {
                 string pattern = SpeedyExpression[patt_pos];
                 if (IsNullOrTrimIsEmpty(pattern))
                     continue;
-                if (!MatchBasicPattern(str, ref str_pos, str_end, pattern))
+                if (!MatchBasicPattern(str, ref str_pos, str_end, pattern, ref unboundVar))
                     return false;
             }
             return true;
         }
 
-        private bool MatchBasicPattern(string str, ref int str_pos, int str_end, string pattern)
+        private bool MatchBasicPattern(string str, ref int str_pos, int str_end, string pattern, ref ulong unboundVar)
         {
-            if (HHH == null)
-                return false;
             int p = 0;
             while (p < pattern.Length)
-            {
-                if (GotoPrintChar(pattern, ref p, pattern.Length) == '\0')
-                    return true;
-                if (!MatchToken(str, ref str_pos, str_end, FIsCaseSensitive, pattern, ref p, pattern.Length))
-                    return false;
-                //GotoNextMatchPos(str, ref str_pos, str_end);
-                GotoPrintChar(str, ref str_pos, str_end);
-            }
+                switch (GotoPrintChar(pattern, ref p, pattern.Length))
+                {
+                    case '\0':
+                        return true;
+                    case '$':
+                        if (p + 1 < pattern.Length && pattern[++p] == '$')
+                            goto default;
+                        unboundVar = T2Make((ulong)p, (ulong)GetIdentLen(str, p + 1));
+                        break;
+                    default:
+                        if (!MatchToken(str, ref str_pos, str_end, FIsCaseSensitive, pattern, ref p, pattern.Length))
+                            return false;
+                        //GotoNextMatchPos(str, ref str_pos, str_end);
+                        GotoPrintChar(str, ref str_pos, str_end);
+                        break;
+                }
             return true;
+        }
+
+        private const ulong T2MASK_LOW = 0xFFFFFFFFFFFFFFFF;
+
+        private static ulong T2Make(ulong pos, ulong len)
+        {
+            return pos | (len << 32);
+        }
+
+        private static int GetIdentLen(string str, int pos)
+        {
+            for (int n = 0; pos + n < str.Length; n++)
+                if (!IsIdentChar(str[pos + n]))
+                    return n;
+            return 0;
         }
 
         private static bool MatchToken(string str, ref int str_pos, int str_end, bool caseSensitive, string pattern, ref int pattern_pos, int pattern_end)
