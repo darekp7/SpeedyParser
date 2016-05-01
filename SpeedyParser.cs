@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Text;
 
-
 /*
  * Simple parser.
  * Author: Dariusz Pilarczyk (dpilarcz@gmail.com)
@@ -20,107 +19,94 @@ namespace ImmutableList
 {
     struct SpeedyParser
     {
-        private bool FIsCaseSensitive;
-        private bool FBracketSensitive;
-        private bool FDoubleQuoteIsCpp;
-        private bool FSingleQuoteIsCpp;
-        private bool FDoubleQuoteIsSql;
-        private bool FSingleQuoteIsSql;
+        public const uint FLG_IS_CASE_SENSITIVE = 1;
+        public const uint FLG_IS_BRACKET_SENSITIVE = 2;
+        public const uint FLG_DOUBLE_QUOTE_CPP = 4;
+        public const uint FLG_DOUBLE_QUOTE_SQL = 8;
+        public const uint FLG_SINGLE_QUOTE_CPP = 16;
+        public const uint FLG_SINGLE_QUOTE_SQL = 32;
+
+        private uint FSensitivity;
 
         private string[] SpeedyExpression;
         private int PatternsEnd;
 
         public SpeedyParser(string[] speedyExpr)
         {
-            FIsCaseSensitive = true;
-            FBracketSensitive = true;
-            FDoubleQuoteIsCpp = true;
-            FSingleQuoteIsCpp = true;
-            FDoubleQuoteIsSql = false;
-            FSingleQuoteIsSql = false;
-
+            FSensitivity = FLG_IS_CASE_SENSITIVE | FLG_IS_BRACKET_SENSITIVE | FLG_DOUBLE_QUOTE_CPP | FLG_SINGLE_QUOTE_CPP;
             SpeedyExpression = speedyExpr ?? new[] { "" };
             PatternsEnd = SpeedyExpression.Length;
             while (PatternsEnd > 0 && IsNullOrTrimIsEmpty(SpeedyExpression[PatternsEnd - 1]))
                 PatternsEnd--;
         }
 
-        public bool TryMatch(string str)
+        public bool TryMatch(string str, Dictionary<string, List<string>> outTable, Action<string, string> outFunc)
         {
-            ulong unboundVar = 0;
+            string unboundVar = null;
             int str_pos = 0;
             int patt_pos = 0;
-            return TryMatchPart(str, ref str_pos, str.Length, ref patt_pos, PatternsEnd, ref unboundVar)
-                && GotoPrintChar(str, ref str_pos, str.Length) == '\0';
+            return TryMatchPart(str, ref str_pos, ref patt_pos, PatternsEnd, ref unboundVar, outTable, outFunc)
+                && GotoPrintChar(str, str_pos) >= str.Length;
         }
 
-        private bool TryMatchPart(string str, ref int str_pos, int str_end, ref int patt_pos, int patt_end, ref ulong unboundVar)
+        private bool TryMatchPart(string str, ref int str_pos, ref int patt_pos, int patt_end,
+            ref string unboundVar, Dictionary<string, List<string>> outTable, Action<string, string> outFunc)
         {
             for (; patt_pos < patt_end; patt_pos++)
             {
                 string pattern = SpeedyExpression[patt_pos];
                 if (IsNullOrTrimIsEmpty(pattern))
                     continue;
-                if (!MatchBasicPattern(str, ref str_pos, str_end, pattern, ref unboundVar))
+                if (!MatchBasicPattern(str, ref str_pos, pattern, ref unboundVar, outTable, outFunc))
                     return false;
             }
             return true;
         }
 
-        private bool MatchBasicPattern(string str, ref int str_pos, int str_end, string pattern, ref ulong unboundVar)
+        private bool MatchBasicPattern(string str, ref int str_pos, string pattern, 
+            ref string unboundVar, Dictionary<string, List<string>> outTable, Action<string, string> outFunc)
         {
             int p = 0;
             while (p < pattern.Length)
-                switch (GotoPrintChar(pattern, ref p, pattern.Length))
+            {
+                if ((p = GotoPrintChar(pattern, p)) >= pattern.Length)
+                    return true;
+                switch (pattern[p])
                 {
-                    case '\0':
-                        return true;
                     case '$':
-                        if (p + 1 < pattern.Length && pattern[++p] == '$')
+                        if (++p < pattern.Length && pattern[p] == '$')
                             goto default;
-                        unboundVar = T2Make((ulong)p, (ulong)GetIdentLen(str, p + 1));
+                        unboundVar = (p >= pattern.Length || !IsIdentChar(pattern[p]) || pattern[p] == '_' 
+                            || outTable == null && outFunc == null)? "_" : str.Substring(p, GetIdentEnd(str, p) - p);
                         break;
                     default:
-                        if (!MatchToken(str, ref str_pos, str_end, FIsCaseSensitive, pattern, ref p, pattern.Length))
+                        if (!MatchToken(str, ref str_pos, (FSensitivity & FLG_IS_CASE_SENSITIVE) != 0, pattern, ref p))
                             return false;
                         //GotoNextMatchPos(str, ref str_pos, str_end);
-                        GotoPrintChar(str, ref str_pos, str_end);
+                        str_pos = GotoPrintChar(str, str_pos);
                         break;
                 }
+            }
             return true;
         }
 
-        private const ulong T2MASK_LOW = 0xFFFFFFFFFFFFFFFF;
-
-        private static ulong T2Make(ulong pos, ulong len)
+        private static bool MatchToken(string str, ref int str_pos, bool caseSensitive, string pattern, ref int pattern_pos)
         {
-            return pos | (len << 32);
-        }
-
-        private static int GetIdentLen(string str, int pos)
-        {
-            for (int n = 0; pos + n < str.Length; n++)
-                if (!IsIdentChar(str[pos + n]))
-                    return n;
-            return 0;
-        }
-
-        private static bool MatchToken(string str, ref int str_pos, int str_end, bool caseSensitive, string pattern, ref int pattern_pos, int pattern_end)
-        {
-            GotoPrintChar(str, ref str_pos, str_end);
+            if ((str_pos = GotoPrintChar(str, str_pos)) >= str.Length)
+                return false;
             char c = pattern[pattern_pos];
             if (IsIdentChar(c) && str_pos > 0 && IsIdentChar(str[str_pos - 1]))
                 return false;
             if (caseSensitive)
-                for (; pattern_pos < pattern_end && !char.IsWhiteSpace(c=pattern[pattern_pos]); pattern_pos++)
+                for (; pattern_pos < pattern.Length && !char.IsWhiteSpace(c=pattern[pattern_pos]); pattern_pos++)
                 {
-                    if (str_pos >= str_end || c != str[str_pos++])
+                    if (str_pos >= str.Length || c != str[str_pos++])
                         return false;
                 }
             else
-                for (; pattern_pos < pattern_end && !char.IsWhiteSpace(c=pattern[pattern_pos]); pattern_pos++)
+                for (; pattern_pos < pattern.Length && !char.IsWhiteSpace(c=pattern[pattern_pos]); pattern_pos++)
                 {
-                    if (str_pos >= str_end || char.ToUpper(c) != char.ToUpper(str[str_pos++]))
+                    if (str_pos >= str.Length || char.ToUpper(c) != char.ToUpper(str[str_pos++]))
                         return false;
                 }
             return !IsIdentChar(c) || str_pos >= str.Length || !IsIdentChar(str[str_pos]);
@@ -141,68 +127,53 @@ namespace ImmutableList
             return true;
         }
 
-        private bool GotoNextMatchPos(string str, ref int pos, int end)
+        public static int GetIdentEnd(string str, int pos)
+        {
+            while (pos < str.Length && IsIdentChar(str[pos]))
+                pos++;
+            return pos;
+        }
+
+        public static int FindEndPos(string str, int pos, uint sensitivity)
         {
             char c = str[pos];
+            if (char.IsWhiteSpace(c))
+                return GotoPrintChar(str, pos);
             if (IsIdentChar(c))
-            {
-                while (IsIdentChar(str[++pos]))
-                    ;
-                return GotoPrintChar(str, ref pos, end) != '\0';
-            }
+                return GetIdentEnd(str, pos);
             switch (c)
             {
                 case '(':
                 case '[':
                 case '{':
-                    if (FBracketSensitive)
-                        return GotoAfterClosingBracket(str, ref pos, end);
-                    else
-                    {
-                        pos++;
-                        return GotoPrintChar(str, ref pos, end) != '\0';
-                    }
+                    return ((sensitivity & FLG_IS_BRACKET_SENSITIVE) != 0) 
+                        ? GotoAfterClosingBracket(str, pos + 1, sensitivity) : pos + 1;
                 case '"':
-                    if (FDoubleQuoteIsCpp || FDoubleQuoteIsSql)
-                        return GotoAfterClosingQuote(FDoubleQuoteIsCpp, FDoubleQuoteIsSql, str, ref pos, end);
-                    else
-                    {
-                        pos++;
-                        return GotoPrintChar(str, ref pos, end) != '\0';
-                    }
+                    return ((sensitivity & (FLG_DOUBLE_QUOTE_CPP|FLG_DOUBLE_QUOTE_SQL)) != 0) 
+                        ? GotoAfterClosingQuote(str, pos, sensitivity & FLG_DOUBLE_QUOTE_CPP, sensitivity & FLG_DOUBLE_QUOTE_SQL) 
+                        : pos + 1;
                 case '\'':
-                    if (FSingleQuoteIsCpp || FSingleQuoteIsSql)
-                        return GotoAfterClosingQuote(FSingleQuoteIsCpp, FSingleQuoteIsSql, str, ref pos, end);
-                    else
-                    {
-                        pos++;
-                        return GotoPrintChar(str, ref pos, end) != '\0';
-                    }
+                    return ((sensitivity & (FLG_SINGLE_QUOTE_CPP | FLG_SINGLE_QUOTE_SQL)) != 0) 
+                        ? GotoAfterClosingQuote(str, pos, sensitivity & FLG_SINGLE_QUOTE_CPP, sensitivity & FLG_SINGLE_QUOTE_SQL) 
+                        : pos + 1;
                 default:
-                    pos++;
-                    return GotoPrintChar(str, ref pos, end) != '\0';
+                    return pos + 1;
             }
         }
 
-        private bool GotoAfterClosingBracket(string str, ref int pos, int end)
+        private static int GotoAfterClosingBracket(string str, int pos, uint sensitivity)
         {
             int n = 1;
-            for (pos++; pos < end; pos++)
+            for (pos++; pos < str.Length; pos++)
                 switch (str[pos])
                 {
                     case '"':
-                        if ((FDoubleQuoteIsCpp || FDoubleQuoteIsSql)  && !GotoAfterClosingQuote(
-                                FDoubleQuoteIsCpp, FDoubleQuoteIsSql, str, ref pos, end))
-                        {
-                            return false;
-                        }
+                        if ((sensitivity & (FLG_DOUBLE_QUOTE_CPP | FLG_DOUBLE_QUOTE_SQL)) != 0)
+                            pos = GotoAfterClosingQuote(str, pos, sensitivity & FLG_DOUBLE_QUOTE_CPP, sensitivity & FLG_DOUBLE_QUOTE_SQL) - 1;
                         break;
                     case '\'':
-                        if ((FSingleQuoteIsCpp || FSingleQuoteIsSql) && !GotoAfterClosingQuote(
-                                FSingleQuoteIsCpp, FSingleQuoteIsSql, str, ref pos, end))
-                        {
-                            return false;
-                        }
+                        if ((sensitivity & (FLG_SINGLE_QUOTE_CPP | FLG_SINGLE_QUOTE_SQL)) != 0)
+                            pos = GotoAfterClosingQuote(str, pos, sensitivity & FLG_SINGLE_QUOTE_CPP, sensitivity & FLG_SINGLE_QUOTE_SQL) - 1;
                         break;
                     case '(':
                     case '[':
@@ -213,39 +184,39 @@ namespace ImmutableList
                     case ']':
                     case '}':
                         if (--n <= 0)
-                        {
-                            pos++;
-                            return true;
-                        }
+                            return pos + 1;
                         break;
                 }
-            return false;
+            return pos;
         }
 
-        public static bool GotoAfterClosingQuote(bool styleCpp, bool styleSql, string str, ref int pos, int end)
+        public static int GotoAfterClosingQuote(string str, int pos, uint n_styleCpp, uint n_styleSql)
         {
-            char quoteChar = str[pos++];
-            for (; pos < end; pos++)
+            bool styleCpp = n_styleCpp != 0;
+            bool styleSql = n_styleSql != 0;
+            for (char quoteChar = str[pos++]; pos < str.Length; pos++)
             {
                 char c = str[pos];
-                if (c == quoteChar && styleSql && pos + 1 < end && str[pos + 1] == quoteChar)
+                if (c == '\\' && styleCpp && !styleSql)
                     pos++;
                 else if (c == quoteChar)
-                {
-                    pos++;
-                    return true;
-                }
-                else if (styleCpp && c == '\\')
-                    pos++;
+                    if (styleSql)
+                    {
+                        if (styleCpp || pos + 1 >= str.Length || str[pos + 1] != quoteChar)
+                            return pos + 1;
+                        pos++;
+                    }
+                    else
+                        return pos + 1;
             }
-            return false;
+            return pos;
         }
 
-        private static char GotoPrintChar(string str, ref int pos, int end)
+        private static int GotoPrintChar(string str, int pos)
         {
-            while (pos < end && Char.IsWhiteSpace(str[pos]))
+            while (pos < str.Length && Char.IsWhiteSpace(str[pos]))
                 pos++;
-            return (pos < end) ? str[pos] : '\0';
+            return pos;
         }
     }
 }
