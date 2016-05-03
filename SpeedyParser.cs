@@ -31,6 +31,9 @@ namespace ImmutableList
         private string[] SpeedyExpression;
         private int PatternsEnd;
 
+        private Dictionary<string, List<string>> OutTable;
+        private Action<string, string> OutFunc;
+
         public SpeedyParser(string[] speedyExpr)
         {
             FSensitivity = FLG_IS_CASE_SENSITIVE | FLG_IS_BRACKET_SENSITIVE | FLG_DOUBLE_QUOTE_CPP | FLG_SINGLE_QUOTE_CPP;
@@ -38,33 +41,33 @@ namespace ImmutableList
             PatternsEnd = SpeedyExpression.Length;
             while (PatternsEnd > 0 && IsNullOrTrimIsEmpty(SpeedyExpression[PatternsEnd - 1]))
                 PatternsEnd--;
+            OutTable = null;
+            OutFunc = null;
         }
 
-        public bool TryMatch(string str, Dictionary<string, List<string>> outTable, Action<string, string> outFunc)
+        public bool TryMatch(string str)
         {
             string unboundVar = null;
             int str_pos = 0;
             int patt_pos = 0;
-            return TryMatchPart(str, ref str_pos, ref patt_pos, PatternsEnd, ref unboundVar, outTable, outFunc)
+            return TryMatchPart(str, ref str_pos, ref patt_pos, PatternsEnd, ref unboundVar)
                 && GotoPrintChar(str, str_pos) >= str.Length;
         }
 
-        private bool TryMatchPart(string str, ref int str_pos, ref int patt_pos, int patt_end,
-            ref string unboundVar, Dictionary<string, List<string>> outTable, Action<string, string> outFunc)
+        private bool TryMatchPart(string str, ref int str_pos, ref int patt_pos, int patt_end, ref string unboundVar)
         {
             for (; patt_pos < patt_end; patt_pos++)
             {
                 string pattern = SpeedyExpression[patt_pos];
                 if (IsNullOrTrimIsEmpty(pattern))
                     continue;
-                if (!MatchBasicPattern(str, ref str_pos, pattern, ref unboundVar, outTable, outFunc))
+                if (!MatchBasicPattern(str, ref str_pos, pattern, ref unboundVar))
                     return false;
             }
             return true;
         }
 
-        private bool MatchBasicPattern(string str, ref int str_pos, string pattern, 
-            ref string unboundVar, Dictionary<string, List<string>> outTable, Action<string, string> outFunc)
+        private bool MatchBasicPattern(string str, ref int str_pos, string pattern, ref string unboundVar)
         {
             int p = 0;
             while (p < pattern.Length)
@@ -76,8 +79,8 @@ namespace ImmutableList
                     case '$':
                         if (++p < pattern.Length && pattern[p] == '$')
                             goto default;
-                        unboundVar = (p >= pattern.Length || !IsIdentChar(pattern[p]) || pattern[p] == '_' 
-                            || outTable == null && outFunc == null)? "_" : str.Substring(p, GetIdentEnd(str, p) - p);
+                        unboundVar = (p >= pattern.Length || !IsIdentChar(pattern[p]) || pattern[p] == '_'
+                            || OutTable == null && OutFunc == null) ? "_" : str.Substring(p, GetIdentEnd(str, p) - p);
                         break;
                     default:
                         if (!MatchToken(str, ref str_pos, (FSensitivity & FLG_IS_CASE_SENSITIVE) != 0, pattern, ref p))
@@ -94,22 +97,23 @@ namespace ImmutableList
         {
             if ((str_pos = GotoPrintChar(str, str_pos)) >= str.Length)
                 return false;
-            char c = pattern[pattern_pos];
-            if (IsIdentChar(c) && str_pos > 0 && IsIdentChar(str[str_pos - 1]))
+            if (IsIdentChar(pattern[pattern_pos]) && str_pos > 0 && IsIdentChar(str[str_pos - 1]))
                 return false;
             if (caseSensitive)
-                for (; pattern_pos < pattern.Length && !char.IsWhiteSpace(c=pattern[pattern_pos]); pattern_pos++)
+                do
                 {
-                    if (str_pos >= str.Length || c != str[str_pos++])
+                    if (str_pos >= str.Length || pattern[pattern_pos] != str[str_pos++])
                         return false;
                 }
+                while (++pattern_pos < pattern.Length && !char.IsWhiteSpace(pattern[pattern_pos]));
             else
-                for (; pattern_pos < pattern.Length && !char.IsWhiteSpace(c=pattern[pattern_pos]); pattern_pos++)
+                do
                 {
-                    if (str_pos >= str.Length || char.ToUpper(c) != char.ToUpper(str[str_pos++]))
+                    if (str_pos >= str.Length || char.ToUpper(pattern[pattern_pos]) != char.ToUpper(str[str_pos++]))
                         return false;
                 }
-            return !IsIdentChar(c) || str_pos >= str.Length || !IsIdentChar(str[str_pos]);
+                while (++pattern_pos < pattern.Length && !char.IsWhiteSpace(pattern[pattern_pos]));
+            return str_pos >= str.Length || !IsIdentChar(str[str_pos]) || !IsIdentChar(pattern[pattern_pos - 1]);
         }
 
         public static bool IsIdentChar(char c)
