@@ -50,43 +50,72 @@ namespace ImmutableList
             string unboundVar = null;
             int str_pos = 0;
             int patt_pos = 0;
-            return TryMatchPart(str, ref str_pos, ref patt_pos, PatternsEnd, ref unboundVar)
+            return TryMatchSinglePass(str, ref str_pos, ref patt_pos, PatternsEnd, ref unboundVar)
                 && GotoPrintChar(str, str_pos) >= str.Length;
         }
 
-        private bool TryMatchPart(string str, ref int str_pos, ref int patt_pos, int patt_end, ref string unboundVar)
+        private bool TryMatchSinglePass(string str, ref int str_pos, ref int patt_pos, int patt_end, ref string unboundVar)
         {
             for (; patt_pos < patt_end; patt_pos++)
             {
                 string pattern = SpeedyExpression[patt_pos];
                 if (IsNullOrTrimIsEmpty(pattern))
                     continue;
-                if (!MatchBasicPattern(str, ref str_pos, pattern, ref unboundVar))
+                if (!MatchSingleLine_Safe(str, ref str_pos, pattern, ref unboundVar))
                     return false;
             }
             return true;
         }
 
-        private bool MatchBasicPattern(string str, ref int str_pos, string pattern, ref string unboundVar)
+        private bool MatchSingleLine_Safe(string str, ref int str_pos, string pattern, ref string unboundVar)
+        {
+            string saveVar = unboundVar;
+            int savePos = str_pos = GotoPrintChar(str, str_pos);
+            if (MatchSingleLine_Unsafe(str, ref str_pos, pattern, ref unboundVar))
+                return true;
+            if (saveVar == null)
+            {
+                unboundVar = saveVar;
+                str_pos = savePos;
+                return false;
+            }
+            while ((str_pos = FindNextMatchingPos(str, str_pos, FSensitivity)) < str.Length)
+            {
+                int savePos2 = str_pos;
+                if (MatchSingleLine_Unsafe(str, ref str_pos, pattern, ref unboundVar))
+                    return true;
+                unboundVar = saveVar;
+                str_pos = savePos2;
+            }
+            unboundVar = saveVar;
+            str_pos = savePos;
+            return false;
+        }
+
+        private bool MatchSingleLine_Unsafe(string str, ref int str_pos, string pattern, ref string unboundVar)
         {
             int p = 0;
             while (p < pattern.Length)
             {
-                if ((p = GotoPrintChar(pattern, p)) >= pattern.Length)
-                    return true;
+                if (char.IsWhiteSpace(pattern[p]))
+                {
+                    p++;
+                    continue;
+                }
                 switch (pattern[p])
                 {
                     case '$':
-                        if (++p < pattern.Length && pattern[p] == '$')
+                        if (++p < pattern.Length && (pattern[p] == '$' || pattern[p] == '[' || pattern[p] == ']'))
                             goto default;
-                        unboundVar = (p >= pattern.Length || !IsIdentChar(pattern[p]) || pattern[p] == '_'
-                            || OutTable == null && OutFunc == null) ? "_" : str.Substring(p, GetIdentEnd(str, p) - p);
-                        break;
+                        int savePos = p;
+                        unboundVar = (p >= pattern.Length || !char.IsLetterOrDigit(pattern[p]) || OutTable == null && OutFunc == null)
+                            ? "_"
+                            : str.Substring(savePos, (p = GetIdentEnd(str, p)) - savePos);
+                        // since unbound variable must be the last item of line, we can just return true
+                        return true;
                     default:
                         if (!MatchToken(str, ref str_pos, (FSensitivity & FLG_IS_CASE_SENSITIVE) != 0, pattern, ref p))
                             return false;
-                        //GotoNextMatchPos(str, ref str_pos, str_end);
-                        str_pos = GotoPrintChar(str, str_pos);
                         break;
                 }
             }
@@ -136,6 +165,13 @@ namespace ImmutableList
             while (pos < str.Length && IsIdentChar(str[pos]))
                 pos++;
             return pos;
+        }
+
+        public static int FindNextMatchingPos(string str, int pos, uint sensitivity)
+        {
+            int TODO = 1;
+            pos = FindEndPos(str, pos, sensitivity);
+            return GotoPrintChar(str, pos);
         }
 
         public static int FindEndPos(string str, int pos, uint sensitivity)
