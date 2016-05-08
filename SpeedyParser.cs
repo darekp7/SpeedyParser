@@ -19,17 +19,23 @@ namespace ImmutableList
 {
     struct SpeedyParser
     {
-        public const uint FLG_IS_CASE_SENSITIVE = 1;
-        public const uint FLG_IS_BRACKET_SENSITIVE = 2;
-        public const uint FLG_DOUBLE_QUOTE_CPP = 4;
-        public const uint FLG_DOUBLE_QUOTE_SQL = 8;
-        public const uint FLG_SINGLE_QUOTE_CPP = 16;
-        public const uint FLG_SINGLE_QUOTE_SQL = 32;
+        private struct PatternLine
+        {
+            public string Line;
+            public int MinRepeat;
+            public int MaxRepeat;
+            public int LoopEnd;
+        }
 
-        private uint FSensitivity;
-
-        private string[] SpeedyExpression;
+        private PatternLine[] SpeedyExpression;
         private int PatternsEnd;
+
+        private bool FIsCaseSensitive;
+        private bool FIsBracketSensitive;
+        private bool FDoubleQuoteIsCpp;
+        private bool FDoubleQuoteIsSql;
+        private bool FSingleQuoteIsCpp;
+        private bool FSingleQuoteIsSql;
 
         private string ParsedStr;
         private string UnboundVar;
@@ -40,13 +46,45 @@ namespace ImmutableList
         private Func<string, string, bool> OutFunc;
         private Func<string, int, string, int, int, bool> OutFunc2;
 
+        private const int PATTERN_IS_LINE = -1;
+
         public SpeedyParser(string[] speedyExpr)
         {
-            FSensitivity = FLG_IS_CASE_SENSITIVE | FLG_IS_BRACKET_SENSITIVE | FLG_DOUBLE_QUOTE_CPP | FLG_SINGLE_QUOTE_CPP;
-            SpeedyExpression = speedyExpr ?? new[] { "" };
-            PatternsEnd = SpeedyExpression.Length;
-            while (PatternsEnd > 0 && IsNullOrTrimIsEmpty(SpeedyExpression[PatternsEnd - 1]))
-                PatternsEnd--;
+            if (speedyExpr == null)
+            {
+                SpeedyExpression = new PatternLine[0];
+                PatternsEnd = 0;
+            }
+            else
+            {
+                SpeedyExpression = new PatternLine[speedyExpr.Length + 1];
+                PatternsEnd = 0;
+                foreach(string s in speedyExpr)
+                    if (!IsNullOrTrimIsEmpty(s))
+                    {
+                        SpeedyExpression[PatternsEnd++] = new PatternLine
+                        {
+                            Line = s,
+                            MinRepeat = 1,
+                            MaxRepeat = 1,
+                            LoopEnd = PATTERN_IS_LINE
+                        };
+                    }
+                SpeedyExpression[PatternsEnd] = new PatternLine
+                {
+                    Line = "",
+                    MinRepeat = 1,
+                    MaxRepeat = 1,
+                    LoopEnd = PATTERN_IS_LINE
+                };
+            }
+
+            FIsCaseSensitive = true;
+            FIsBracketSensitive = true;
+            FDoubleQuoteIsCpp = true;
+            FDoubleQuoteIsSql = false;
+            FSingleQuoteIsCpp = true;
+            FSingleQuoteIsSql = false;
 
             UnboundVar = null;
             UnbndVPttrnPos = 0;
@@ -65,6 +103,8 @@ namespace ImmutableList
             SpeedyParser sp = this;
             sp.ParsedStr = str = str ?? "";
             sp.OutTable = res;
+            if (sp.PatternsEnd <= 0)
+                return sp.GotoPrintChar(str_pos) >= sp.ParsedStr.Length;
             try
             {
                 return sp.TryMatchSinglePass(ref str_pos, ref patt_pos, PatternsEnd)
@@ -81,13 +121,34 @@ namespace ImmutableList
 
         private bool TryMatchSinglePass(ref int str_pos, ref int patt_pos, int patt_end)
         {
-            for (; patt_pos < patt_end; patt_pos++)
+            PatternLine ln = SpeedyExpression[patt_pos];
+            while (patt_pos < patt_end)
             {
-                string pattern = SpeedyExpression[patt_pos];
-                if (IsNullOrTrimIsEmpty(pattern))
-                    continue;
-                if (!MatchSingleLine_Safe(ref str_pos, pattern))
-                    return false;
+                if (ln.LoopEnd == PATTERN_IS_LINE)
+                {
+                    if (!MatchSingleLine_Safe(ref str_pos, ln.Line))
+                        return false;
+                    ln = SpeedyExpression[patt_pos];
+                }
+                else
+                {
+                    int patt_pos_sub = patt_pos + 1;
+                    if (TryMatchSinglePass(ref str_pos, ref patt_pos_sub, ln.LoopEnd))
+                    {
+                        if (ln.MaxRepeat <= 1)
+                            ln = SpeedyExpression[patt_pos = ln.LoopEnd + 1];
+                        else
+                        {
+                            if (ln.MinRepeat > 0)
+                                ln.MinRepeat = ln.MinRepeat - 1;
+                            if (ln.MaxRepeat < int.MaxValue)
+                                ln.MaxRepeat = ln.MaxRepeat - 1;
+                        }
+                    }
+                    else
+                    {
+                    }
+                }
             }
             return true;
         }
@@ -104,7 +165,7 @@ namespace ImmutableList
                 str_pos = savePosMSL;
                 return false;
             }
-            while ((str_pos = FindNextMatchingPos(str_pos, FSensitivity)) < ParsedStr.Length)
+            while ((str_pos = FindNextMatchingPos(str_pos)) < ParsedStr.Length)
             {
                 int savePos2 = str_pos;
                 if (MatchSingleLine_Unsafe(ref str_pos, pattern))
@@ -147,7 +208,7 @@ namespace ImmutableList
                         return true;
                     default:
                         int savePos2M = str_pos;
-                        if (!MatchToken(ref str_pos, (FSensitivity & FLG_IS_CASE_SENSITIVE) != 0, pattern, ref p))
+                        if (!MatchToken(ref str_pos, FIsCaseSensitive, pattern, ref p))
                             return false;
                         if (UnboundVar != null)
                         {
@@ -228,14 +289,14 @@ namespace ImmutableList
             return pos;
         }
 
-        public int FindNextMatchingPos(int pos, uint sensitivity)
+        public int FindNextMatchingPos(int pos)
         {
             int TODO = 1;
-            pos = FindEndPos(pos, sensitivity);
+            pos = FindEndPos(pos);
             return GotoPrintChar(pos);
         }
 
-        public int FindEndPos(int pos, uint sensitivity)
+        public int FindEndPos(int pos)
         {
             string str = ParsedStr;
             char c = str[pos];
@@ -248,34 +309,29 @@ namespace ImmutableList
                 case '(':
                 case '[':
                 case '{':
-                    return ((sensitivity & FLG_IS_BRACKET_SENSITIVE) != 0) 
-                        ? GotoAfterClosingBracket(str, pos + 1, sensitivity) : pos + 1;
+                    return FIsBracketSensitive? GotoAfterClosingBracket(str, pos + 1) : pos + 1;
                 case '"':
-                    return ((sensitivity & (FLG_DOUBLE_QUOTE_CPP|FLG_DOUBLE_QUOTE_SQL)) != 0) 
-                        ? GotoAfterClosingQuote(str, pos, sensitivity & FLG_DOUBLE_QUOTE_CPP, sensitivity & FLG_DOUBLE_QUOTE_SQL) 
-                        : pos + 1;
+                    return (FDoubleQuoteIsCpp || FDoubleQuoteIsSql) ? GotoAfterClosingQuote(str, pos, FDoubleQuoteIsCpp, FDoubleQuoteIsSql) : pos + 1;
                 case '\'':
-                    return ((sensitivity & (FLG_SINGLE_QUOTE_CPP | FLG_SINGLE_QUOTE_SQL)) != 0) 
-                        ? GotoAfterClosingQuote(str, pos, sensitivity & FLG_SINGLE_QUOTE_CPP, sensitivity & FLG_SINGLE_QUOTE_SQL) 
-                        : pos + 1;
+                    return (FSingleQuoteIsCpp || FSingleQuoteIsSql) ? GotoAfterClosingQuote(str, pos, FSingleQuoteIsCpp, FSingleQuoteIsSql) : pos + 1;
                 default:
                     return pos + 1;
             }
         }
 
-        private static int GotoAfterClosingBracket(string str, int pos, uint sensitivity)
+        private int GotoAfterClosingBracket(string str, int pos)
         {
             int n = 1;
             for (pos++; pos < str.Length; pos++)
                 switch (str[pos])
                 {
                     case '"':
-                        if ((sensitivity & (FLG_DOUBLE_QUOTE_CPP | FLG_DOUBLE_QUOTE_SQL)) != 0)
-                            pos = GotoAfterClosingQuote(str, pos, sensitivity & FLG_DOUBLE_QUOTE_CPP, sensitivity & FLG_DOUBLE_QUOTE_SQL) - 1;
+                        if (FDoubleQuoteIsCpp || FDoubleQuoteIsSql)
+                            pos = GotoAfterClosingQuote(str, pos, FDoubleQuoteIsCpp, FDoubleQuoteIsSql) - 1;
                         break;
                     case '\'':
-                        if ((sensitivity & (FLG_SINGLE_QUOTE_CPP | FLG_SINGLE_QUOTE_SQL)) != 0)
-                            pos = GotoAfterClosingQuote(str, pos, sensitivity & FLG_SINGLE_QUOTE_CPP, sensitivity & FLG_SINGLE_QUOTE_SQL) - 1;
+                        if (FSingleQuoteIsCpp || FSingleQuoteIsSql)
+                            pos = GotoAfterClosingQuote(str, pos, FSingleQuoteIsCpp, FSingleQuoteIsSql) - 1;
                         break;
                     case '(':
                     case '[':
@@ -292,10 +348,8 @@ namespace ImmutableList
             return pos;
         }
 
-        public static int GotoAfterClosingQuote(string str, int pos, uint n_styleCpp, uint n_styleSql)
+        public static int GotoAfterClosingQuote(string str, int pos, bool styleCpp, bool styleSql)
         {
-            bool styleCpp = n_styleCpp != 0;
-            bool styleSql = n_styleSql != 0;
             for (char quoteChar = str[pos++]; pos < str.Length; pos++)
             {
                 char c = str[pos];
