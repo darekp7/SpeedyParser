@@ -27,7 +27,15 @@ namespace ImmutableList
             public int LoopEnd;
         }
 
+        private struct Preprocessed
+        {
+            public string Line;
+            public int SentinelStartPos; // sentinel means more or less guard (in polish wartownik)
+            public int NextSentinel; // next guard 
+        }
+
         private PatternLine[] SpeedyExpression;
+        private Preprocessed[] MyPreprocessed;
         private int PatternsEnd;
 
         private bool FIsCaseSensitive;
@@ -47,9 +55,11 @@ namespace ImmutableList
         private Func<string, int, string, int, int, bool> OutFunc2;
 
         private const int PATTERN_IS_LINE = -1;
+        private static readonly string[] FEmptyLines = new string[0];
 
         public SpeedyParser(string[] speedyExpr)
         {
+            speedyExpr = speedyExpr ?? FEmptyLines;
             if (speedyExpr == null)
             {
                 SpeedyExpression = new PatternLine[0];
@@ -70,13 +80,6 @@ namespace ImmutableList
                             LoopEnd = PATTERN_IS_LINE
                         };
                     }
-                SpeedyExpression[PatternsEnd] = new PatternLine
-                {
-                    Line = "",
-                    MinRepeat = 1,
-                    MaxRepeat = 1,
-                    LoopEnd = PATTERN_IS_LINE
-                };
             }
 
             FIsCaseSensitive = true;
@@ -94,6 +97,57 @@ namespace ImmutableList
             OutFunc = null;
             OutFunc2 = null;
             ParsedStr = null;
+            MyPreprocessed = new Preprocessed[speedyExpr.Length];
+            Preprocess(speedyExpr);
+        }
+
+        private void Preprocess(string[] speedyExpr)
+        {
+            PatternsEnd = 0;
+            foreach (string s in speedyExpr)
+            {
+                if (!IsNullOrTrimIsEmpty(s))
+                {
+                    for (int i = 0; i < s.Length; i++)
+                        if (!char.IsWhiteSpace(s[i]))
+                            switch (s[i])
+                            {
+                                case '$':
+                                    if (++i < s.Length && (s[i] == '$' || s[i] == '[' || s[i] == '|' || s[i] == ']'))
+                                    {
+                                        i--;
+                                        goto default;
+                                    }
+                                    MyPreprocessed[PatternsEnd++] = new Preprocessed
+                                    {
+                                        Line = s,
+                                        SentinelStartPos = -1,
+                                        NextSentinel = -1
+                                    };
+                                    break;
+                                case '[':
+                                case '|':
+                                case ']':
+                                    MyPreprocessed[PatternsEnd++] = new Preprocessed
+                                    {
+                                        Line = s,
+                                        SentinelStartPos = -1,
+                                        NextSentinel = -1
+                                    };
+                                    break;
+                                default:
+                                    MyPreprocessed[PatternsEnd++] = new Preprocessed
+                                    {
+                                        Line = s,
+                                        SentinelStartPos = i,
+                                        NextSentinel = -1
+                                    };
+                                    for (int j = i - 1; j >= 0 && MyPreprocessed[j].NextSentinel < 0; j--)
+                                        MyPreprocessed[j].NextSentinel = i;
+                                    break;
+                            }
+                }
+            }
         }
 
         public bool TryMatch(string str, Dictionary<string, List<string>> res)
