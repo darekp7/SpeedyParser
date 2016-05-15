@@ -239,7 +239,7 @@ namespace ImmutableList
 
         private bool TryMatchSinglePass(ref int str_pos, ref int patt_pos, int patt_end)
         {
-            while (patt_pos < patt_end)
+            for (; patt_pos < patt_end; patt_pos++)
                 if (MatchSingleLine_Safe(ref str_pos, MyPreprocessed[patt_pos].Line) != MatchResult.True)
                     return false;
             return true;
