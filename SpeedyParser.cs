@@ -36,6 +36,13 @@ namespace ImmutableList
             public int MaxRepeat;
         }
 
+        private enum MatchResult
+        {
+            True,
+            False,
+            TotalFailure
+        }
+
         private PatternLine[] SpeedyExpression;
         private PreprocessedLine[] MyPreprocessed;
         private int PatternsEnd;
@@ -48,13 +55,11 @@ namespace ImmutableList
         private bool FSingleQuoteIsSql;
 
         private string ParsedStr;
-        private string UnboundVar;
-        private int UnbndVPttrnPos;
-        private int UnbndVarStrPos;
+        private int FirstSentinel;
 
         private Dictionary<string, List<string>> OutTable;
         private Func<string, string, bool> OutFunc;
-        private Func<string, int, string, int, int, bool> OutFunc2;
+        private Func<string, int, int, string, int, bool> OutFunc2;
 
         private const int PATTERN_IS_LINE = -1;
         private static readonly string[] FEmptyLines = new string[0];
@@ -91,15 +96,12 @@ namespace ImmutableList
             FSingleQuoteIsCpp = true;
             FSingleQuoteIsSql = false;
 
-            UnboundVar = null;
-            UnbndVPttrnPos = 0;
-            UnbndVarStrPos = 0;
-
             OutTable = null;
             OutFunc = null;
             OutFunc2 = null;
             ParsedStr = null;
             MyPreprocessed = new PreprocessedLine[speedyExpr.Length];
+            FirstSentinel = -1;
             Preprocess(speedyExpr);
         }
 
@@ -193,6 +195,8 @@ namespace ImmutableList
                             MinRepeat = -1,
                             MaxRepeat = -1
                         };
+                        if (FirstSentinel < 0)
+                            FirstSentinel = i_pattern_line;
                         for (int j = i_pattern_line - 1; j >= 0 && MyPreprocessed[j].NextSentinel < 0; j--)
                             MyPreprocessed[j].NextSentinel = i_pattern_line;
                         break;
@@ -213,7 +217,7 @@ namespace ImmutableList
                                 goto default;
                             if (!IsIdentChar(str[i]))
                                 throw new Exception(string.Format("Row {0}: expected identifier or '_' after '$'.", i_pattern_line + 1));
-                            if ((i = GetIdentEnd(str, i)) + 1 < str.Length && str[i] == ':')
+                            if ((i = FindIdentEnd(str, i)) + 1 < str.Length && str[i] == ':')
                                 CheckTypeName(str, ref i, i_pattern_line);
                             break;
                         default:
@@ -226,7 +230,9 @@ namespace ImmutableList
 
         private void CheckTypeName(string str, ref int i, int i_pattern_line)
         {
-            if (str[++i] == '*')
+            if (++i >= str.Length)
+                throw new Exception(string.Format("Row {0}: expected type after ':'.", i_pattern_line + 1));
+            if (str[i] == '*')
             {
                 if (i + 1 < str.Length && !char.IsWhiteSpace(str[i + 1]))
                     throw new Exception(string.Format("Row {0}: invalid type (after ':').", i_pattern_line + 1));
@@ -265,102 +271,104 @@ namespace ImmutableList
         {
             PatternLine ln = SpeedyExpression[patt_pos];
             while (patt_pos < patt_end)
-            {
-                if (ln.LoopEnd == PATTERN_IS_LINE)
-                {
-                    if (!MatchSingleLine_Safe(ref str_pos, ln.Line))
+                    if (MatchSingleLine_Safe(ref str_pos, ln.Line) != MatchResult.True)
                         return false;
-                    ln = SpeedyExpression[patt_pos];
-                }
-                else
-                {
-                    int patt_pos_sub = patt_pos + 1;
-                    if (TryMatchSinglePass(ref str_pos, ref patt_pos_sub, ln.LoopEnd))
-                    {
-                        if (ln.MaxRepeat <= 1)
-                            ln = SpeedyExpression[patt_pos = ln.LoopEnd + 1];
-                        else
-                        {
-                            if (ln.MinRepeat > 0)
-                                ln.MinRepeat = ln.MinRepeat - 1;
-                            if (ln.MaxRepeat < int.MaxValue)
-                                ln.MaxRepeat = ln.MaxRepeat - 1;
-                        }
-                    }
-                    else
-                    {
-                    }
-                }
-            }
             return true;
         }
 
-        private bool MatchSingleLine_Safe(ref int str_pos, string pattern)
+        private MatchResult MatchSingleLine_Safe(ref int str_pos, string pattern)
         {
-            string saveVar = UnboundVar;
             int savePosMSL = str_pos = GotoPrintChar(str_pos);
-            if (MatchSingleLine_Unsafe(ref str_pos, pattern))
-                return true;
-            if (saveVar == null)
-            {
-                UnboundVar = saveVar;
+            MatchResult res = MatchSingleLine_Unsafe(ref str_pos, pattern);
+            if(res != MatchResult.True)
                 str_pos = savePosMSL;
-                return false;
-            }
-            while ((str_pos = FindNextMatchingPos(str_pos)) < ParsedStr.Length)
-            {
-                int savePos2 = str_pos;
-                if (MatchSingleLine_Unsafe(ref str_pos, pattern))
-                    return true;
-                UnboundVar = saveVar;
-                str_pos = savePos2;
-            }
-            UnboundVar = saveVar;
-            str_pos = savePosMSL;
-            return false;
+            return res;
         }
 
-        private bool MatchSingleLine_Unsafe(ref int str_pos, string pattern)
+        private MatchResult MatchSingleLine_Unsafe(ref int str_pos, string pattern)
         {
-            int p = 0;
-            while (p < pattern.Length)
+            MatchResult resFalse = MatchResult.False;
+            for (int p = 0; p < pattern.Length; p++)
             {
                 if (char.IsWhiteSpace(pattern[p]))
-                {
-                    p++;
                     continue;
-                }
                 switch (pattern[p])
                 {
                     case '$':
-                        if (++p < pattern.Length && (pattern[p] == '$' || pattern[p] == '[' || pattern[p] == ']'))
+                        if (pattern[++p] == '$' || pattern[p] == '[' || pattern[p] == ']')
                             goto default;
-                        if(p >= pattern.Length || !char.IsLetterOrDigit(pattern[p]))
+                        resFalse = MatchResult.TotalFailure;
+                        int str_begin = str_pos = GotoPrintChar(str_pos);
+                        int p_end = FindIdentEnd(pattern, p);
+                        if (p_end >= pattern.Length || pattern[p_end] != ':')
                         {
-                            UnboundVar = "_";
-                            UnbndVPttrnPos = 0;
+                            char c_after_var = GotoPrintChar(pattern, ref p_end, pattern.Length);
+                            while (str_pos < ParsedStr.Length)
+                            {
+                                if (ParsedStr[str_pos] == c_after_var
+                                    && MatchToken_Safe(ref str_pos, FIsCaseSensitive, pattern, ref p_end))
+                                {
+                                    SaveVariable(str_begin, str_pos, pattern, p);
+                                    p = p_end - 1;
+                                    break;
+                                }
+
+                                bool match_found = false;
+                                for (int sent = FirstSentinel; sent >= 0; sent = MyPreprocessed[sent].NextSentinel)
+                                {
+                                    int sent_patt_pos = MyPreprocessed[sent].SentinelStartPos;
+                                    string sent_patt = MyPreprocessed[sent].Line;
+                                    if (ParsedStr[str_pos] == sent_patt[sent_patt_pos]
+                                        && MatchToken_Safe(ref str_pos, FIsCaseSensitive, pattern, ref sent_patt_pos))
+                                    {
+                                        SaveVariable(str_begin, str_pos, sent_patt, sent_patt_pos);
+                                        p = p_end;
+                                        match_found = true;
+                                        break;
+                                    }
+                                }
+                                if (match_found)
+                                    break;
+                                str_pos = GotoPrintChar(FindNextMatchingPos(str_pos));
+                            }
+                            if (str_pos >= ParsedStr.Length)
+                            {
+                                SaveVariable(str_begin, str_pos, pattern, p);
+                                return GotoPrintChar(pattern, ref p_end, pattern.Length) == '\0'? MatchResult.True : MatchResult.TotalFailure;
+                            }
+                        }
+                        else if (pattern[++p_end] == '*')
+                        {
+                            SaveVariable(str_begin, str_pos, pattern, p);
+                            return GotoPrintChar(pattern, ref p_end, pattern.Length) == '\0' ? MatchResult.True : MatchResult.TotalFailure;
                         }
                         else
                         {
-                            UnboundVar = pattern;
-                            UnbndVPttrnPos = p;
+                            int p_type = ++p_end;
+                            p_end = FindIdentEnd(pattern, p_type);
+                            GotoPrintChar(pattern, ref p_end, pattern.Length);
                         }
-                        UnbndVarStrPos = str_pos;
-                        // since unbound variable must be the last item of line, we can just return true
-                        return true;
+                        break;
                     default:
-                        int savePos2M = str_pos;
                         if (!MatchToken(ref str_pos, FIsCaseSensitive, pattern, ref p))
-                            return false;
-                        if (UnboundVar != null)
-                        {
-                            SaveVariable(UnboundVar, UnbndVPttrnPos, UnbndVarStrPos, savePos2M);
-                            UnboundVar = null;
-                        }
+                            return resFalse;
                         break;
                 }
             }
-            return true;
+            return MatchResult.True;
+        }
+
+        private bool MatchToken_Safe(ref int str_pos, bool caseSensitive, string pattern, ref int pattern_pos)
+        {
+            int ps = str_pos;
+            int pp = pattern_pos;
+            if (MatchToken(ref ps, caseSensitive, pattern, ref pp))
+            {
+                str_pos = ps;
+                pattern_pos = pp;
+                return true;
+            }
+            return false;
         }
 
         private bool MatchToken(ref int str_pos, bool caseSensitive, string pattern, ref int pattern_pos)
@@ -386,14 +394,14 @@ namespace ImmutableList
             return str_pos >= ParsedStr.Length || !IsIdentChar(ParsedStr[str_pos]) || !IsIdentChar(pattern[pattern_pos - 1]);
         }
 
-        private void SaveVariable(string varNamePattern, int unbndVPttrnPos, int unbndVarStrPos, int str_pos_end)
+        private void SaveVariable(int str_pos_start, int str_pos_end, string varNamePattern, int varPos)
         {
             if (varNamePattern != null && varNamePattern[0] != '_')
             {
                 if (OutTable != null || OutFunc != null)
                 {
-                    string varName = varNamePattern.Substring(unbndVPttrnPos, GetIdentEnd(varNamePattern, unbndVPttrnPos) - unbndVPttrnPos);
-                    string varValue = ParsedStr.Substring(unbndVarStrPos, str_pos_end - unbndVarStrPos).Trim();
+                    string varName = varNamePattern.Substring(varPos, FindIdentEnd(varNamePattern, varPos) - varPos);
+                    string varValue = ParsedStr.Substring(str_pos_start, str_pos_end - str_pos_start).Trim();
                     if (OutTable != null)
                     {
                         List<string> ll;
@@ -404,7 +412,7 @@ namespace ImmutableList
                     if (OutFunc != null && !OutFunc(varName, varValue))
                         throw new Exception("");                           
                 }
-                if (OutFunc2 != null && !OutFunc2(varNamePattern, unbndVPttrnPos, ParsedStr, unbndVarStrPos, str_pos_end))
+                if (OutFunc2 != null && !OutFunc2(ParsedStr, str_pos_start, str_pos_end, varNamePattern, varPos))
                         throw new Exception("");                           
             }
         }
@@ -424,7 +432,7 @@ namespace ImmutableList
             return true;
         }
 
-        public static int GetIdentEnd(string str, int pos)
+        public static int FindIdentEnd(string str, int pos)
         {
             while (pos < str.Length && IsIdentChar(str[pos]))
                 pos++;
@@ -445,7 +453,7 @@ namespace ImmutableList
             if (char.IsWhiteSpace(c))
                 return GotoPrintChar(pos);
             if (IsIdentChar(c))
-                return GetIdentEnd(str, pos);
+                return FindIdentEnd(str, pos);
             switch (c)
             {
                 case '(':
