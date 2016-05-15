@@ -108,7 +108,7 @@ namespace ImmutableList
             PatternsEnd = 0;
             for (int i_pattern_line = 0; i_pattern_line < speedyExpr.Length; i_pattern_line++)
             {
-                string s = speedyExpr[i_pattern_line];
+                string s = speedyExpr[i_pattern_line] ?? "";
                 int i = 0;
                 if (GotoPrintChar(s, ref i, s.Length) == '\0')
                     continue;
@@ -120,6 +120,7 @@ namespace ImmutableList
                             i--;
                             goto default;
                         }
+                        CheckLineSyntax(s, i_pattern_line);
                         MyPreprocessed[PatternsEnd++] = new PreprocessedLine
                         {
                             Line = s,
@@ -183,6 +184,7 @@ namespace ImmutableList
                         };
                         break;
                     default:
+                        CheckLineSyntax(s, i_pattern_line);
                         MyPreprocessed[PatternsEnd++] = new PreprocessedLine
                         {
                             Line = s,
@@ -196,6 +198,44 @@ namespace ImmutableList
                         break;
                 }
             }
+        }
+
+        private void CheckLineSyntax(string str, int i_pattern_line)
+        {
+            for (int i=0; i < str.Length; i++)
+                if (!char.IsWhiteSpace(str[i]))
+                    switch (str[i])
+                    {
+                        case '$':
+                            if (++i >= str.Length || char.IsWhiteSpace(str[i]))
+                                throw new Exception(string.Format("Row {0}: expected identifier after '$'.", i_pattern_line + 1));
+                            if (str[i] == '$' || str[i] == '[' || str[i] == '|' || str[i] == ']')
+                                goto default;
+                            if (!IsIdentChar(str[i]))
+                                throw new Exception(string.Format("Row {0}: expected identifier or '_' after '$'.", i_pattern_line + 1));
+                            if ((i = GetIdentEnd(str, i)) + 1 < str.Length && str[i] == ':')
+                                CheckTypeName(str, ref i, i_pattern_line);
+                            break;
+                        default:
+                            while (i < str.Length && !char.IsWhiteSpace(str[i]))
+                                i++;
+                            i--;
+                            break;
+                    }
+        }
+
+        private void CheckTypeName(string str, ref int i, int i_pattern_line)
+        {
+            if (str[++i] == '*')
+            {
+                if (i + 1 < str.Length && !char.IsWhiteSpace(str[i + 1]))
+                    throw new Exception(string.Format("Row {0}: invalid type (after ':').", i_pattern_line + 1));
+            }
+            else
+            {
+                int TODO = 1;
+            }
+
         }
 
         public bool TryMatch(string str, Dictionary<string, List<string>> res)
