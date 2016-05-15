@@ -27,15 +27,17 @@ namespace ImmutableList
             public int LoopEnd;
         }
 
-        private struct Preprocessed
+        private struct PreprocessedLine
         {
             public string Line;
             public int SentinelStartPos; // sentinel means more or less guard (in polish wartownik)
             public int NextSentinel; // next guard 
+            public int MinRepeat;
+            public int MaxRepeat;
         }
 
         private PatternLine[] SpeedyExpression;
-        private Preprocessed[] MyPreprocessed;
+        private PreprocessedLine[] MyPreprocessed;
         private int PatternsEnd;
 
         private bool FIsCaseSensitive;
@@ -97,55 +99,101 @@ namespace ImmutableList
             OutFunc = null;
             OutFunc2 = null;
             ParsedStr = null;
-            MyPreprocessed = new Preprocessed[speedyExpr.Length];
+            MyPreprocessed = new PreprocessedLine[speedyExpr.Length];
             Preprocess(speedyExpr);
         }
 
         private void Preprocess(string[] speedyExpr)
         {
             PatternsEnd = 0;
-            foreach (string s in speedyExpr)
+            for (int i_pattern_line = 0; i_pattern_line < speedyExpr.Length; i_pattern_line++)
             {
-                if (!IsNullOrTrimIsEmpty(s))
+                string s = speedyExpr[i_pattern_line];
+                int i = 0;
+                if (GotoPrintChar(s, ref i, s.Length) == '\0')
+                    continue;
+                switch (s[i])
                 {
-                    for (int i = 0; i < s.Length; i++)
-                        if (!char.IsWhiteSpace(s[i]))
-                            switch (s[i])
-                            {
-                                case '$':
-                                    if (++i < s.Length && (s[i] == '$' || s[i] == '[' || s[i] == '|' || s[i] == ']'))
-                                    {
-                                        i--;
-                                        goto default;
-                                    }
-                                    MyPreprocessed[PatternsEnd++] = new Preprocessed
-                                    {
-                                        Line = s,
-                                        SentinelStartPos = -1,
-                                        NextSentinel = -1
-                                    };
-                                    break;
-                                case '[':
-                                case '|':
-                                case ']':
-                                    MyPreprocessed[PatternsEnd++] = new Preprocessed
-                                    {
-                                        Line = s,
-                                        SentinelStartPos = -1,
-                                        NextSentinel = -1
-                                    };
-                                    break;
-                                default:
-                                    MyPreprocessed[PatternsEnd++] = new Preprocessed
-                                    {
-                                        Line = s,
-                                        SentinelStartPos = i,
-                                        NextSentinel = -1
-                                    };
-                                    for (int j = i - 1; j >= 0 && MyPreprocessed[j].NextSentinel < 0; j--)
-                                        MyPreprocessed[j].NextSentinel = i;
-                                    break;
-                            }
+                    case '$':
+                        if (++i < s.Length && (s[i] == '$' || s[i] == '[' || s[i] == '|' || s[i] == ']'))
+                        {
+                            i--;
+                            goto default;
+                        }
+                        MyPreprocessed[PatternsEnd++] = new PreprocessedLine
+                        {
+                            Line = s,
+                            SentinelStartPos = -1,
+                            NextSentinel = -1,
+                            MinRepeat = -1,
+                            MaxRepeat = -1
+                        };
+                        break;
+                    case '[':
+                    case '|':
+                        i++;
+                        if (GotoPrintChar(s, ref i, s.Length) != '\0')
+                            throw new Exception(string.Format("Row {0}: '[' and '|' must be placed in separate line.", i_pattern_line + 1));
+                        MyPreprocessed[PatternsEnd++] = new PreprocessedLine
+                        {
+                            Line = s,
+                            SentinelStartPos = -1,
+                            NextSentinel = -1,
+                            MinRepeat = -1,
+                            MaxRepeat = -1
+                        };
+                        break;
+                    case ']':
+                        int min_repeat = 0;
+                        int max_repeat = 1;
+                        i++;
+                        switch (GotoPrintChar(s, ref i, s.Length))
+                        {
+                            case '\0':
+                            case '?':
+                                break;
+                            case '!':
+                                min_repeat = 1;
+                                break;
+                            case '*':
+                                max_repeat = int.MaxValue;
+                                break;
+                            case '+':
+                                min_repeat = 1;
+                                max_repeat = int.MaxValue;
+                                break;
+                            case '[':
+                                i++;
+                                if (!Atoi(s, ref i, out min_repeat))
+                                    throw new Exception(string.Format("Row {0}: syntax error, expected syntax: [number..number].", i_pattern_line + 1));
+                                if (TestString(s, ref i, "]"))
+                                    max_repeat = min_repeat;
+                                else if (!TestString(s, ref i, "..") || !Atoi(s, ref i, out max_repeat) || !TestString(s, ref i, "]") || GotoPrintChar(s, ref i, s.Length) != '\0')
+                                    throw new Exception(string.Format("Row {0}: syntax error, expected syntax: [number..number].", i_pattern_line + 1));
+                                break;
+
+                        }
+                        MyPreprocessed[PatternsEnd++] = new PreprocessedLine
+                        {
+                            Line = s,
+                            SentinelStartPos = -1,
+                            NextSentinel = -1,
+                            MinRepeat = min_repeat,
+                            MaxRepeat = max_repeat
+                        };
+                        break;
+                    default:
+                        MyPreprocessed[PatternsEnd++] = new PreprocessedLine
+                        {
+                            Line = s,
+                            SentinelStartPos = i,
+                            NextSentinel = -1,
+                            MinRepeat = -1,
+                            MaxRepeat = -1
+                        };
+                        for (int j = i_pattern_line - 1; j >= 0 && MyPreprocessed[j].NextSentinel < 0; j--)
+                            MyPreprocessed[j].NextSentinel = i_pattern_line;
+                        break;
                 }
             }
         }
@@ -427,6 +475,37 @@ namespace ImmutableList
             while (pos < ParsedStr.Length && Char.IsWhiteSpace(ParsedStr[pos]))
                 pos++;
             return pos;
+        }
+
+        private static char GotoPrintChar(string str, ref int pos, int end)
+        {
+            while (pos < end && Char.IsWhiteSpace(str[pos]))
+                pos++;
+            return (pos < end) ? str[pos] : '\0';
+        }
+
+        private static bool Atoi(string str, ref int pos, out int n)
+        {
+            bool res = false;
+            n = 0;
+            if (GotoPrintChar(str, ref pos, str.Length) == '\0')
+                return false;
+            while (pos < str.Length && char.IsDigit(str[pos]))
+            {
+                n = n * 10 + ((int)str[pos] - (int)'0');
+                res = true;
+            }
+            return res;
+        }
+
+        private static bool TestString(string str, ref int pos, string strTest)
+        {
+            if (GotoPrintChar(str, ref pos, str.Length) == '\0' || pos + strTest.Length < str.Length)
+                return false;
+            for (int pos2 = 0; pos2 < strTest.Length; pos2++)
+                if (str[pos++] != strTest[pos2])
+                    return false;
+            return true;
         }
     }
 }
