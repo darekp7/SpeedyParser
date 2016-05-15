@@ -78,7 +78,6 @@ namespace ImmutableList
 
         private void Preprocess(string[] speedyExpr)
         {
-            PatternsEnd = 0;
             for (int i_pattern_line = 0; i_pattern_line < speedyExpr.Length; i_pattern_line++)
             {
                 string s = speedyExpr[i_pattern_line] ?? "";
@@ -282,23 +281,11 @@ namespace ImmutableList
                                     p = p_end - 1;
                                     break;
                                 }
-
-                                bool match_found = false;
-                                for (int sent = FirstSentinel; sent >= 0; sent = MyPreprocessed[sent].NextSentinel)
+                                if (MatchSentinelAndSaveVar(str_begin, ref str_pos))
                                 {
-                                    int sent_patt_pos = MyPreprocessed[sent].SentinelStartPos;
-                                    string sent_patt = MyPreprocessed[sent].Line;
-                                    if (ParsedStr[str_pos] == sent_patt[sent_patt_pos]
-                                        && MatchToken_Safe(ref str_pos, FIsCaseSensitive, pattern, ref sent_patt_pos))
-                                    {
-                                        SaveVariable(str_begin, str_pos, sent_patt, sent_patt_pos);
-                                        p = p_end;
-                                        match_found = true;
-                                        break;
-                                    }
-                                }
-                                if (match_found)
+                                    p = p_end;
                                     break;
+                                }
                                 str_pos = GotoPrintChar(FindEndPos(str_pos));
                             }
                             if (str_pos >= ParsedStr.Length)
@@ -328,6 +315,24 @@ namespace ImmutableList
             return MatchResult.True;
         }
 
+        private bool MatchSentinelAndSaveVar(int str_begin, ref int str_pos)
+        {
+            int savePos = str_pos;
+            for (int sent = FirstSentinel; sent >= 0; sent = MyPreprocessed[sent].NextSentinel)
+            {
+                int sent_patt_pos = MyPreprocessed[sent].SentinelStartPos;
+                string sent_patt = MyPreprocessed[sent].Line;
+                str_pos = savePos;
+                if (ParsedStr[str_pos] == sent_patt[sent_patt_pos] 
+                    && MatchToken(ref str_pos, FIsCaseSensitive, sent_patt, ref sent_patt_pos))
+                {
+                    SaveVariable(str_begin, str_pos, sent_patt, sent_patt_pos);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private bool MatchToken_Safe(ref int str_pos, bool caseSensitive, string pattern, ref int pattern_pos)
         {
             int ps = str_pos;
@@ -343,8 +348,6 @@ namespace ImmutableList
 
         private bool MatchToken(ref int str_pos, bool caseSensitive, string pattern, ref int pattern_pos)
         {
-            if ((str_pos = GotoPrintChar(str_pos)) >= ParsedStr.Length)
-                return false;
             if (IsIdentChar(pattern[pattern_pos]) && str_pos > 0 && IsIdentChar(ParsedStr[str_pos - 1]))
                 return false;
             if (caseSensitive)
