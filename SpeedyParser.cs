@@ -19,14 +19,6 @@ namespace ImmutableList
 {
     struct SpeedyParser
     {
-        private struct PatternLine
-        {
-            public string Line;
-            public int MinRepeat;
-            public int MaxRepeat;
-            public int LoopEnd;
-        }
-
         private struct PreprocessedLine
         {
             public string Line;
@@ -43,16 +35,15 @@ namespace ImmutableList
             TotalFailure
         }
 
-        private PatternLine[] SpeedyExpression;
-        private PreprocessedLine[] MyPreprocessed;
-        private int PatternsEnd;
-
         private bool FIsCaseSensitive;
         private bool FIsBracketSensitive;
         private bool FDoubleQuoteIsCpp;
         private bool FDoubleQuoteIsSql;
         private bool FSingleQuoteIsCpp;
         private bool FSingleQuoteIsSql;
+
+        private PreprocessedLine[] MyPreprocessed;
+        private int PatternsEnd;
 
         private string ParsedStr;
         private int FirstSentinel;
@@ -67,27 +58,6 @@ namespace ImmutableList
         public SpeedyParser(string[] speedyExpr)
         {
             speedyExpr = speedyExpr ?? FEmptyLines;
-            if (speedyExpr == null)
-            {
-                SpeedyExpression = new PatternLine[0];
-                PatternsEnd = 0;
-            }
-            else
-            {
-                SpeedyExpression = new PatternLine[speedyExpr.Length + 1];
-                PatternsEnd = 0;
-                foreach(string s in speedyExpr)
-                    if (!IsNullOrTrimIsEmpty(s))
-                    {
-                        SpeedyExpression[PatternsEnd++] = new PatternLine
-                        {
-                            Line = s,
-                            MinRepeat = 1,
-                            MaxRepeat = 1,
-                            LoopEnd = PATTERN_IS_LINE
-                        };
-                    }
-            }
 
             FIsCaseSensitive = true;
             FIsBracketSensitive = true;
@@ -101,6 +71,7 @@ namespace ImmutableList
             OutFunc2 = null;
             ParsedStr = null;
             MyPreprocessed = new PreprocessedLine[speedyExpr.Length];
+            PatternsEnd = 0;
             FirstSentinel = -1;
             Preprocess(speedyExpr);
         }
@@ -269,10 +240,9 @@ namespace ImmutableList
 
         private bool TryMatchSinglePass(ref int str_pos, ref int patt_pos, int patt_end)
         {
-            PatternLine ln = SpeedyExpression[patt_pos];
             while (patt_pos < patt_end)
-                    if (MatchSingleLine_Safe(ref str_pos, ln.Line) != MatchResult.True)
-                        return false;
+                if (MatchSingleLine_Safe(ref str_pos, MyPreprocessed[patt_pos].Line) != MatchResult.True)
+                    return false;
             return true;
         }
 
@@ -329,7 +299,7 @@ namespace ImmutableList
                                 }
                                 if (match_found)
                                     break;
-                                str_pos = GotoPrintChar(FindNextMatchingPos(str_pos));
+                                str_pos = GotoPrintChar(FindEndPos(str_pos));
                             }
                             if (str_pos >= ParsedStr.Length)
                             {
@@ -437,13 +407,6 @@ namespace ImmutableList
             while (pos < str.Length && IsIdentChar(str[pos]))
                 pos++;
             return pos;
-        }
-
-        public int FindNextMatchingPos(int pos)
-        {
-            int TODO = 1;
-            pos = FindEndPos(pos);
-            return GotoPrintChar(pos);
         }
 
         public int FindEndPos(int pos)
