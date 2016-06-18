@@ -24,7 +24,7 @@ namespace ImmutableList
 
         private Func<SpeedyParser, bool> Body = null;
         private Dictionary<string, List<string>> OutTable;
-        private string[] Sentinels;
+        private List<string> Sentinels;
 
         public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
@@ -54,7 +54,7 @@ namespace ImmutableList
             i++;
         }
 
-        private static Expression CompileExpression(Expression expr)
+        private Expression CompileExpression(Expression expr, bool sentinelExpected)
         {
             // https://msdn.microsoft.com/pl-pl/library/bb352032(v=vs.110).aspx
             // good examples:
@@ -65,99 +65,118 @@ namespace ImmutableList
             switch (expr.NodeType)
             {
                 case ExpressionType.Assign:         // a = b
+                    return (be != null) ? Expression.Assign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.AddAssign:      // a += b
+                    return (be != null) ? Expression.AddAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.AddAssignChecked: // a += b with overflow checking
+                    return (be != null) ? Expression.AddAssignChecked(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.AndAssign:      // a &= b
+                    return (be != null) ? Expression.AndAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.DivideAssign:	// a /= b
+                    return (be != null) ? Expression.DivideAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.ExclusiveOrAssign:  // a ^= b
+                    return (be != null) ? Expression.ExclusiveOrAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.LeftShiftAssign:	// a <<= b
+                    return (be != null) ? Expression.LeftShiftAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.ModuloAssign:	    // a %= b
+                    return (be != null) ? Expression.ModuloAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.MultiplyAssign:	    // a *= b
+                    return (be != null) ? Expression.MultiplyAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.MultiplyAssignChecked:  // a *= b
+                    return (be != null) ? Expression.MultiplyAssignChecked(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.OrAssign:	        // a |= b
+                    return (be != null) ? Expression.OrAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.PowerAssign:	    // A compound assignment operation that raises a number to a power, such as (a ^= b) in Visual Basic.
+                    return (be != null) ? Expression.PowerAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.RightShiftAssign:   // a >>= b
+                    return (be != null) ? Expression.RightShiftAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.SubtractAssign:	    // a -= b
+                    return (be != null) ? Expression.SubtractAssign(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.SubtractAssignChecked:  // a -= b
-                    return expr;
+                    return (be != null) ? Expression.SubtractAssignChecked(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
 
                 case ExpressionType.Conditional:    // a > b ? a : b
                     ConditionalExpression ce_ex = expr as ConditionalExpression;
-                    return (ce_ex != null) ? Expression.Condition(CompileExpression(ce_ex.Test), CompileExpression(ce_ex.IfTrue), CompileExpression(ce_ex.IfFalse)) : expr;
+                    return (ce_ex != null) ? Expression.Condition(CompileExpression(ce_ex.Test, sentinelExpected), CompileExpression(ce_ex.IfTrue, sentinelExpected), CompileExpression(ce_ex.IfFalse, sentinelExpected)) : expr;
                 case ExpressionType.Coalesce:       // a ?? b
-                    return (be != null) ? Expression.Coalesce(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Coalesce(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.OrElse:	        // a || b
-                    return (be != null) ? Expression.OrElse(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.OrElse(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.AndAlso:        // a && b
-                    return (be != null) ? Expression.AndAlso(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.AndAlso(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.Or:	            // a | b
-                    return (be != null) ? Expression.Or(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Or(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.ExclusiveOr:	// a ^ b
-                    return (be != null) ? Expression.ExclusiveOr(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.ExclusiveOr(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.And:            // a & b
-                    return (be != null) ? Expression.And(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.And(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
 
                 case ExpressionType.Equal:	            // a == b
-                    return (be != null) ? Expression.Equal(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Equal(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.NotEqual:	        // a != b
-                    return (be != null) ? Expression.NotEqual(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.NotEqual(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.GreaterThan:	    // a > b
-                    return (be != null) ? Expression.GreaterThan(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.GreaterThan(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.GreaterThanOrEqual:	// a >= b
-                    return (be != null) ? Expression.GreaterThanOrEqual(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.GreaterThanOrEqual(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.LessThan:	        // a < b
-                    return (be != null) ? Expression.LessThan(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.LessThan(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.LessThanOrEqual:	// a <= b
-                    return (be != null) ? Expression.LessThanOrEqual(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.LessThanOrEqual(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.TypeAs:	            // obj as SampleType
                 case ExpressionType.TypeIs:	            // obj is SampleType
                     return expr;
                 case ExpressionType.LeftShift:	  // a << b
-                    return (be != null) ? Expression.LeftShift(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.LeftShift(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.RightShift:	  // a >> b
-                    return (be != null) ? Expression.RightShift(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.RightShift(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
 
                 case ExpressionType.Add:            // a + b
-                    return (be != null) ? Expression.Add(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Add(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.AddChecked:     // a + b with overflow checking
-                    return (be != null) ? Expression.AddChecked(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.AddChecked(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.Decrement:	    // a - 1
+                    return (une != null) ? Expression.Decrement(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.Increment:	    // a + 1
+                    return (une != null) ? Expression.Increment(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.Subtract:	    // a - b
-                    return (be != null) ? Expression.Subtract(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Subtract(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.SubtractChecked:    // a - b
-                    return (be != null) ? Expression.SubtractChecked(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.SubtractChecked(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
 
                 case ExpressionType.Multiply:	        // a * b
-                    return (be != null) ? Expression.Multiply(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Multiply(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.MultiplyChecked:    // a * b
-                    return (be != null) ? Expression.MultiplyChecked(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.MultiplyChecked(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.Divide:	            // a / b
-                    return (be != null) ? Expression.Divide(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Divide(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.Modulo:	            // a % b
-                    return (be != null) ? Expression.Modulo(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Modulo(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.Power:	  // raises a number to a power, such as (a ^ b) in Visual Basic.
-                    return (be != null) ? Expression.Power(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.Power(CompileExpression(be.Left, sentinelExpected), CompileExpression(be.Right, sentinelExpected)) : expr;
 
                 case ExpressionType.PreDecrementAssign:     // --a
+                    return (une != null) ? Expression.PreDecrementAssign(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.PreIncrementAssign:     // ++a
+                    return (une != null) ? Expression.PreIncrementAssign(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.PostDecrementAssign:    // a--
+                    return (une != null) ? Expression.PostDecrementAssign(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.PostIncrementAssign:	// a++
-                    return null;
+                    return (une != null) ? Expression.PostIncrementAssign(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.Negate:	        // -a
-                    return (une != null) ? Expression.Negate(une.Operand) : expr;
+                    return (une != null) ? Expression.Negate(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.NegateChecked:	// -a
-                    return (une != null) ? Expression.NegateChecked(une.Operand) : expr;
+                    return (une != null) ? Expression.NegateChecked(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.Not:	        // ~a
-                    return (une != null) ? Expression.Not(une.Operand) : expr;
+                    return (une != null) ? Expression.Not(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.OnesComplement:	// ~a in C#
-                    return (une != null) ? Expression.OnesComplement(une.Operand) : expr;
+                    return (une != null) ? Expression.OnesComplement(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.UnaryPlus:	    // +a
-                    return (une != null) ? Expression.UnaryPlus(une.Operand) : expr;
+                    return (une != null) ? Expression.UnaryPlus(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.ArrayIndex:     // a[b]
-                    return (be != null) ? Expression.ArrayIndex(be.Left, CompileExpression(be.Right)) : expr;
+                    return (be != null) ? Expression.ArrayIndex(be.Left, CompileExpression(be.Right, sentinelExpected)) : expr;
                 case ExpressionType.ArrayLength:    // a.Length
-                    return (une != null) ? Expression.ArrayLength(une.Operand) : expr;
+                    return (une != null) ? Expression.ArrayLength(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 
                 case ExpressionType.Index:	        // An index operation or an operation that accesses a property that takes arguments.
                 case ExpressionType.Block:          // block expression
@@ -167,15 +186,22 @@ namespace ImmutableList
                 case ExpressionType.DebugInfo:	    // Debugging information.
                     return expr;
                 case ExpressionType.Call:       // obj.sampleMethod()
+                    var call_e = expr as MethodCallExpression;
+                    return (call_e != null)? CompileCall(call_e) : expr;
                 case ExpressionType.Constant:   // a constant value
-                    return null;
+                    var const_e = expr as ConstantExpression;
+                    if (const_e != null && const_e.Value != null && (const_e.Value is string))
+                        Sentinels.Add(const_e.Value as string);
+                    return expr;
                 case ExpressionType.Default:	// A default value.
                 case ExpressionType.IsFalse:    // A false condition value.
+                    return (une != null) ? Expression.IsFalse(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.IsTrue:	    // A true condition value.
+                    return (une != null) ? Expression.IsTrue(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.Lambda:	    // a => a + a
                     return expr;
                 case ExpressionType.Quote:	    // An expression that has a constant value of type Expression. A Quote node can contain references to parameters that are defined in the context of the expression it represents.
-                    return (une != null) ? Expression.Quote(une.Operand) : expr;
+                    return (une != null) ? Expression.Quote(CompileExpression(une.Operand, sentinelExpected)) : expr;
                 case ExpressionType.Dynamic:    // A dynamic operation.
                 case ExpressionType.Extension:	// An extension expression.
                 case ExpressionType.Goto:	    // A "go to" expression, such as goto Label in C# or GoTo Label in Visual Basic.
@@ -198,6 +224,15 @@ namespace ImmutableList
                 default:
                     return expr;
             }
+        }
+
+        private Expression CompileCall(MethodCallExpression expr)
+        {
+            var method = expr.Method;
+            foreach (var p in method.GetParameters())
+            {
+            }
+            return expr;
         }
 
         public bool If(string str, string strVar, params bool[] body)
