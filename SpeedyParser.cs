@@ -33,11 +33,11 @@ namespace ImmutableList
         public static void Test()
         {
             Expression<Func<SpeedyParser, bool>> parserBody = (p) =>
-                p.If("select", "_columns",
-                    p.If("from", "table",
-                        p.While("join", "table",
-                            p.If("on", "_")),
-                        p.If("where", "_")));
+                p.If("select", 
+                    p.If("from", 
+                        p.While("join", 
+                            p.If("on")),
+                        p.If("where")));
 
             /*Expression<Func<SpeedyParser, bool>> parserBody2 = (p) =>
                 p.If("select _columns",
@@ -51,6 +51,18 @@ namespace ImmutableList
             int i = 0;
 
             Expression<Func<int, int>> x = n => n + i;
+            SpeedyParser spp = new SpeedyParser(null);
+            Expression<Func<bool>> bf = () => spp.If("");
+            var a = bf.Body;
+            if (a is MethodCallExpression)
+            {
+                var a1 = a as MethodCallExpression;
+                if (a1.Method.Name == "If" && a1.Object.Type == typeof(SpeedyParser))
+                {
+                    System.Windows.Forms.MessageBox.Show(a1.Method.Name);
+                    i++;
+                }
+            }
             i++;
         }
 
@@ -228,29 +240,36 @@ namespace ImmutableList
 
         private Expression CompileCall(MethodCallExpression expr)
         {
+            if (expr.Object.Type == typeof(SpeedyParser))
+                switch (expr.Method.Name)
+                {
+                    case "If":
+                        break;
+                }
             var method = expr.Method;
+            //method.
             foreach (var p in method.GetParameters())
             {
             }
             return expr;
         }
 
-        public bool If(string str, string strVar, params bool[] body)
+        public bool If(string str, params bool[] body)
         {
             return true;
         }
 
-        public bool While(string str, string strVar, params bool[] body)
+        public bool While(string str, params bool[] body)
         {
             return true;
         }
 
-        public bool If(string str, Func<string, bool> setVar, params bool[] body)
+        public bool Switch(bool firstInstruction, params bool[] moreInstructions)
         {
             return true;
         }
 
-        public bool While(string str, Func<string, bool> setVar, params bool[] body)
+        public bool SwitchLoop(bool firstInstruction, params bool[] moreInstructions)
         {
             return true;
         }
