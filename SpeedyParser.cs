@@ -26,6 +26,10 @@ namespace ImmutableList
         private Dictionary<string, List<string>> OutTable;
         private List<string> Sentinels;
 
+        private string IdentCharsEx = "_";
+        private string MyString = "";
+        private long CurrentPos = 0;
+
         public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
         }
@@ -333,6 +337,11 @@ namespace ImmutableList
             return true;
         }
 
+        public bool IfOneOf(string str, params bool[] body)
+        {
+            return true;
+        }
+
         public bool While(string str, params bool[] body)
         {
             return true;
@@ -362,20 +371,65 @@ namespace ImmutableList
         {
             get
             {
-                int TODO = 1;
-                return true;
+                return GotoPrintChar() == '\0';
             }
         }
 
-        public bool Test(string str)
+        public bool SetIdentChars(string str)
         {
-            int TODO = 1;
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in str ?? "")
+                if (!char.IsWhiteSpace(c))
+                    sb.Append(c);
+            IdentCharsEx = sb.ToString();
             return true;
         }
 
-        public void Emit(string strVar)
+        public virtual bool IsIdentChar(char c)
         {
-            int TODO = 1;
+            return char.IsLetterOrDigit(c) || IdentCharsEx.IndexOf(c) >= 0;
+        }
+
+        public bool TestSingleItem(string str, ref int pos)
+        {
+            while (pos < str.Length && char.IsWhiteSpace(str[pos]))
+                pos++;
+            GotoPrintChar();
+            if (pos >= str.Length)
+                return true;
+            if (CurrentPos > 0 && IsIdentChar(str[pos]) && IsIdentChar(GetCharAt(CurrentPos - 1)))
+                return false;
+            long savePos = CurrentPos;
+            while (pos < str.Length && !char.IsWhiteSpace(str[pos]))
+            {
+                char c = GetCharAt(CurrentPos);
+                if (c != str[pos] && (IsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
+                {
+                    CurrentPos = savePos;
+                    return false;
+                }
+                CurrentPos++;
+                pos++;
+            }
+            if (CurrentPos < MyString.Length && IsIdentChar(str[pos - 1]) && IsIdentChar(GetCharAt(CurrentPos)))
+            {
+                CurrentPos = savePos;
+                return false;
+            }
+            return true;
+        }
+
+        public char GotoPrintChar()
+        {
+            char c;
+            while ((c = GetCharAt(CurrentPos)) != '\0' && char.IsWhiteSpace(c))
+                CurrentPos++;
+            return c;
+        }
+
+        public char GetCharAt(long pos)
+        {
+            return (pos < 0 || pos >= MyString.Length) ? '\0' : MyString[(int)pos];
         }
     }
 }
