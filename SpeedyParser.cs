@@ -22,13 +22,13 @@ namespace ImmutableList
         private bool FSingleQuoteIsCpp;
         private bool FSingleQuoteIsSql;
 
-        private Func<SpeedyParser, bool> Body = null;
-        private Dictionary<string, List<string>> OutTable;
-        private List<string> Sentinels;
+        protected Func<SpeedyParser, bool> Body = null;
+        public Dictionary<string, List<string>> Result;
+        protected List<string> Sentinels;
 
-        private string IdentCharsEx = "_";
-        private string MyString = "";
-        private long CurrentPos = 0;
+        protected string IdentCharsEx = "_";
+        protected string MyString = "";
+        protected long CurrentPos = 0;
 
         public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
@@ -332,32 +332,43 @@ namespace ImmutableList
             }
         }
 
-        public bool If(string str, params bool[] body)
+        public bool If(string sentinel, params bool[] body)
         {
             return true;
         }
 
-        public bool IfOneOf(string str, params bool[] body)
+        protected bool If_implementation(string str, params Func<bool>[] body)
+        {
+            if (!Test(str))
+                return true;
+            if (body != null)
+                foreach (var f in body)
+                    if (!f())
+                        return false;
+            return true;
+        }
+
+        public bool IfOneOf(string sentinel, params bool[] body)
         {
             return true;
         }
 
-        public bool While(string str, params bool[] body)
+        public bool While(string sentinel, params bool[] body)
         {
             return true;
         }
 
-        public bool WhileOneOf(string str, params bool[] body)
+        protected bool While_implementation(string str, params Func<bool>[] body)
         {
+            while (Test(str))
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
             return true;
         }
 
-        public bool Switch(bool firstInstruction, params bool[] moreInstructions)
-        {
-            return true;
-        }
-
-        public bool SwitchLoop(bool firstInstruction, params bool[] moreInstructions)
+        public bool WhileOneOf(string sentinel, params bool[] body)
         {
             return true;
         }
@@ -385,12 +396,84 @@ namespace ImmutableList
             return true;
         }
 
+        public bool Add2Result(string varName, string varValue)
+        {
+            varName = varName ?? "";
+            varValue = varValue ?? "";
+            if (Result == null)
+                Result = new Dictionary<string, List<string>>();
+            if (!Result.ContainsKey(varName))
+                Result[varName] = new List<string>();
+            Result[varName].Add(varValue);
+            return true;
+        }
+
         public virtual bool IsIdentChar(char c)
         {
             return char.IsLetterOrDigit(c) || IdentCharsEx.IndexOf(c) >= 0;
         }
 
-        public bool TestSingleItem(string str, ref int pos)
+        protected bool Test(string str)
+        {
+            int endPos = str.LastIndexOf("->");
+            if (endPos < 0)
+                endPos = str.Length;
+            int pos = 0;
+            while (pos < endPos)
+            {
+                while (pos < str.Length && char.IsWhiteSpace(str[pos]))
+                    pos++;
+                if (pos >= str.Length)
+                    break;
+                if(!TestSingleItem(str, ref pos, null))
+                    return false;
+            }
+            if (endPos + 2 < str.Length)
+            {
+                string varName = str.Substring(endPos + 2).Trim();
+                if (varName != "" && varName[0] != '_')
+                {
+                    string varValue = str.Substring(0, endPos).Trim();
+                    Add2Result(varName, varValue);
+                }
+            }
+            return true;
+        }
+
+        protected bool TestOneOf(string str)
+        {
+            int endPos = str.LastIndexOf("->");
+            if (endPos < 0)
+                endPos = str.Length;
+            string varName = null;
+            if (endPos + 2 < str.Length)
+            {
+                varName = str.Substring(endPos + 2).Trim();
+                if (varName == "" || varName[0] != '_')
+                    varName = null;
+            }
+            int pos = 0;
+            while (pos < str.Length && char.IsWhiteSpace(str[pos]))
+                pos++;
+            if (pos >= endPos)
+            {
+                if (varName != null)
+                    Add2Result(varName, "");
+                return true;
+            }
+            while (pos < endPos)
+            {
+                while (pos < str.Length && char.IsWhiteSpace(str[pos]))
+                    pos++;
+                if (pos >= str.Length)
+                    break;
+                if (TestSingleItem(str, ref pos, varName))
+                    return true;
+            }
+            return false;
+        }
+
+        protected bool TestSingleItem(string str, ref int pos, string varName)
         {
             while (pos < str.Length && char.IsWhiteSpace(str[pos]))
                 pos++;
@@ -400,6 +483,7 @@ namespace ImmutableList
             if (CurrentPos > 0 && IsIdentChar(str[pos]) && IsIdentChar(GetCharAt(CurrentPos - 1)))
                 return false;
             long savePos = CurrentPos;
+            int itemBegin = pos;
             while (pos < str.Length && !char.IsWhiteSpace(str[pos]))
             {
                 char c = GetCharAt(CurrentPos);
@@ -416,6 +500,8 @@ namespace ImmutableList
                 CurrentPos = savePos;
                 return false;
             }
+            if (varName != null)
+                Add2Result(varName, str.Substring(itemBegin, pos - itemBegin).Trim());
             return true;
         }
 
