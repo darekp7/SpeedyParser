@@ -15,6 +15,8 @@ namespace ImmutableList
 {
     class SpeedyParser
     {
+        protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
+        protected Func<SpeedyParser, bool> Body = null;
         public bool IsCaseSensitive;
         public bool IsBracketSensitive;
         private bool FDoubleQuoteIsCpp;
@@ -22,16 +24,22 @@ namespace ImmutableList
         private bool FSingleQuoteIsCpp;
         private bool FSingleQuoteIsSql;
 
-        protected Func<SpeedyParser, bool> Body = null;
-        public Dictionary<string, List<string>> Result;
+        public Dictionary<string, List<string>> Result = null;
         protected List<string> Sentinels;
 
         protected string IdentCharsEx = "_";
         protected string MyString = "";
         protected long CurrentPos = 0;
 
+        private SpeedyParser()
+        {
+        }
+
         public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
+            Sentinels = new List<string>();
+            CompiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
+            Body = CompiledExpression.Compile();
         }
 
         public static void Test()
@@ -80,6 +88,34 @@ namespace ImmutableList
                 }
             }
             i++;
+        }
+
+        public SpeedyParser Clone()
+        {
+            SpeedyParser sp = new SpeedyParser();
+            sp.Body = Body;
+            sp.IsCaseSensitive = IsCaseSensitive;
+            sp.IsBracketSensitive = IsBracketSensitive;
+            sp.FDoubleQuoteIsCpp = FDoubleQuoteIsCpp;
+            sp.FDoubleQuoteIsSql = FDoubleQuoteIsSql;
+            sp.FSingleQuoteIsCpp = FSingleQuoteIsCpp;
+            sp.FSingleQuoteIsSql = FSingleQuoteIsSql;
+            sp.Result = null;
+            sp.Sentinels = Sentinels;
+
+            sp.IdentCharsEx = IdentCharsEx;
+            sp.MyString = "";
+            sp.CurrentPos = 0;
+
+            return sp;
+        }
+
+        public bool TryMatch(string str)
+        {
+            MyString = str;
+            CurrentPos = 0;
+
+            return Body(this);
         }
 
         private Expression CompileExpression(Expression expr)
@@ -227,7 +263,8 @@ namespace ImmutableList
                 case ExpressionType.IsTrue:	    // A true condition value.
                     return (une != null) ? Expression.IsTrue(CompileExpression(une.Operand)) : expr;
                 case ExpressionType.Lambda:	    // a => a + a
-                    return expr;
+                    var lambda_e = expr as LambdaExpression;
+                    return (lambda_e == null)? expr : Expression.Lambda(CompileExpression(lambda_e.Body), lambda_e.Parameters);
                 case ExpressionType.Quote:	    // An expression that has a constant value of type Expression. A Quote node can contain references to parameters that are defined in the context of the expression it represents.
                     return (une != null) ? Expression.Quote(CompileExpression(une.Operand)) : expr;
                 case ExpressionType.Dynamic:    // A dynamic operation.
@@ -274,7 +311,8 @@ namespace ImmutableList
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "sentinels")
                         {
                             TryEvaluateSentinels(expr.Arguments[0], expr.Method.Name, 0);
-                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Method.Name), ConvertArgumentsToLambdas(expr.Arguments, 1));
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1);
+                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Method.Name), args);
                         }
                         break;
                 }
@@ -292,14 +330,18 @@ namespace ImmutableList
 
         public static System.Reflection.MethodInfo GetImplementationMethod(string methodName)
         {
-            return typeof(SpeedyParser).GetMethod(methodName + "_implementation", System.Reflection.BindingFlags.NonPublic);
+            string searchMethod = methodName + "_implementation";
+            var res = typeof(SpeedyParser).GetMethod(searchMethod, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if(res == null)
+                throw new ECompilationError(string.Format("Method {0} not found", searchMethod));
+            return res;
         }
 
         private void TryEvaluateSentinels(Expression expr, string callingFunction, int paramInx)
         {
             object obj = Evaluate(expr, callingFunction, paramInx);
             if (obj == null)
-                throw new ECompilationError(string.Format("Compilation error: parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
+                throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
             if (obj is string[])
             {
                 string[] sents = obj as string[];
@@ -312,21 +354,40 @@ namespace ImmutableList
         {
             object obj = Evaluate(expr, callingFunction, paramInx);
             if (obj == null)
-                throw new ECompilationError(string.Format("Compilation error: parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
+                throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
             if (obj is string)
             {
                 string sents = ((obj as string) ?? "").Trim();
                 if (sents == "")
-                    throw new ECompilationError(string.Format("Compilation error: parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
+                    throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
                 Sentinels.Add(sents);
             }
         }
 
         public Expression[] ConvertArgumentsToLambdas(System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, int startInx)
         {
-            Expression[] res = new Expression[arguments.Count - startInx];
-            for (int i = startInx; i < arguments.Count; i++)
-                res[i] = Expression.Lambda(CompileExpression(arguments[i]));
+            Expression[] res = new Expression[arguments.Count];
+            for (int i = 0; i < startInx; i++)
+                res[i] = arguments[i];
+            for (int i_res = startInx; i_res < arguments.Count; i_res++)
+            {
+                Expression expr = arguments[i_res];
+                if(expr.NodeType != ExpressionType.NewArrayInit)
+                    res[i_res] = expr;
+                else
+                {
+                    var na_e = expr as NewArrayExpression;
+                    if (na_e == null)
+                        res[i_res] = expr;
+                    else
+                    {
+                        var lambdas = new Expression[na_e.Expressions.Count];
+                        for(int i=0; i < na_e.Expressions.Count; i++)
+                            lambdas[i] = Expression.Lambda(CompileExpression(na_e.Expressions[i]));
+                        res[i_res] = Expression.NewArrayInit(typeof(Func<bool>), lambdas);
+                    }
+                }
+            }
             return res;
         }
 
@@ -341,7 +402,7 @@ namespace ImmutableList
             }
             catch
             {
-                throw new ECompilationError(string.Format("Compilation error: cannot evaluate parameter {0} of function {1}", paramInx + 1, callingFunction));
+                throw new ECompilationError(string.Format("Cannot evaluate parameter {0} of function {1}", paramInx + 1, callingFunction));
             }
         }
 
@@ -350,7 +411,7 @@ namespace ImmutableList
             return true;
         }
 
-        protected bool If_implementation(string str, params Func<bool>[] body)
+        protected bool If_implementation(string str, Func<bool>[] body)
         {
             if (!Test(str))
                 return true;
@@ -366,7 +427,7 @@ namespace ImmutableList
             return true;
         }
 
-        protected bool IfOneOf_implementation(string[] sentinels, params Func<bool>[] body)
+        protected bool IfOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             if (!TestOneOf(sentinels))
                 return true;
@@ -382,7 +443,7 @@ namespace ImmutableList
             return true;
         }
 
-        protected bool While_implementation(string str, params Func<bool>[] body)
+        protected bool While_implementation(string str, Func<bool>[] body)
         {
             while (Test(str))
                 if (body != null)
@@ -397,7 +458,7 @@ namespace ImmutableList
             return true;
         }
 
-        protected bool WhileOneOf_implementation(string[] sentinels, params Func<bool>[] body)
+        protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             while (TestOneOf(sentinels))
                 if (body != null)
