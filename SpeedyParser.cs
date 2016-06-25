@@ -472,7 +472,6 @@ namespace ImmutableList
         {
             GotoPrintChar();
             long startPos = CurrentPos;
-            long endPos = -1;
             while (GotoPrintChar() != '\0' && !PointsAtSentinel())
                 if (!IsIdentChar(GetCharAt(CurrentPos)))
                     CurrentPos++;
@@ -480,7 +479,7 @@ namespace ImmutableList
                     while (IsIdentChar(GetCharAt(CurrentPos)))
                         CurrentPos++;
             if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
-                Add2Result(varName, GetInputSubstring(startPos, (endPos < 0) ? CurrentPos : endPos).Trim());
+                Add2Result(varName, GetInputSubstring(startPos, CurrentPos).Trim());
             return true;
         }
 
