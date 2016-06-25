@@ -51,7 +51,7 @@ namespace ImmutableList
 
             Expression<Func<SpeedyParser, bool>> parserBody2 = (p) =>
                 p.Eat("skladnik")
-                && p.WhileOneOf("+ - -> operator",
+                && p.WhileOneOf(new[] { "+ -> operator", "- -> operator" },
                     p.Eat("skladnik"))
                 && p.Eof;
 
@@ -265,15 +265,15 @@ namespace ImmutableList
                     case "While":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "sentinel")
                         {
-                            TryEvaluateSentinel(false, expr.Arguments[0], expr.Method.Name, 0);
+                            TryEvaluateSentinel(expr.Arguments[0], expr.Method.Name, 0);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Method.Name), ConvertArgumentsToLambdas(expr.Arguments, 1));
                         }
                         break;
                     case "IfOneOf":
                     case "WhileOneOf":
-                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "sentinel")
+                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "sentinels")
                         {
-                            TryEvaluateSentinel(true, expr.Arguments[0], expr.Method.Name, 0);
+                            TryEvaluateSentinels(expr.Arguments[0], expr.Method.Name, 0);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Method.Name), ConvertArgumentsToLambdas(expr.Arguments, 1));
                         }
                         break;
@@ -295,7 +295,20 @@ namespace ImmutableList
             return typeof(SpeedyParser).GetMethod(methodName + "_implementation", System.Reflection.BindingFlags.NonPublic);
         }
 
-        private void TryEvaluateSentinel(bool isOneOf, Expression expr, string callingFunction, int paramInx)
+        private void TryEvaluateSentinels(Expression expr, string callingFunction, int paramInx)
+        {
+            object obj = Evaluate(expr, callingFunction, paramInx);
+            if (obj == null)
+                throw new ECompilationError(string.Format("Compilation error: parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
+            if (obj is string[])
+            {
+                string[] sents = obj as string[];
+                foreach(string sentinel in sents)
+                    Sentinels.Add(sentinel);
+            }
+        }
+
+        private void TryEvaluateSentinel(Expression expr, string callingFunction, int paramInx)
         {
             object obj = Evaluate(expr, callingFunction, paramInx);
             if (obj == null)
@@ -348,8 +361,19 @@ namespace ImmutableList
             return true;
         }
 
-        public bool IfOneOf(string sentinel, params bool[] body)
+        public bool IfOneOf(string[] sentinels, params bool[] body)
         {
+            return true;
+        }
+
+        protected bool IfOneOf_implementation(string[] sentinels, params Func<bool>[] body)
+        {
+            if (!TestOneOf(sentinels))
+                return true;
+            if (body != null)
+                foreach (var f in body)
+                    if (!f())
+                        return false;
             return true;
         }
 
@@ -368,8 +392,18 @@ namespace ImmutableList
             return true;
         }
 
-        public bool WhileOneOf(string sentinel, params bool[] body)
+        public bool WhileOneOf(string[] sentinels, params bool[] body)
         {
+            return true;
+        }
+
+        protected bool WhileOneOf_implementation(string[] sentinels, params Func<bool>[] body)
+        {
+            while (TestOneOf(sentinels))
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
             return true;
         }
 
@@ -413,6 +447,17 @@ namespace ImmutableList
             return char.IsLetterOrDigit(c) || IdentCharsEx.IndexOf(c) >= 0;
         }
 
+        protected bool TestOneOf(string[] sentinels)
+        {
+            GotoPrintChar();
+            long savePos = CurrentPos;
+            foreach (string sent in sentinels)
+                if (Test(sent))
+                    return true;
+            CurrentPos = savePos;
+            return false;
+        }
+
         protected bool Test(string str)
         {
             int endPos = str.LastIndexOf("->");
@@ -421,11 +466,10 @@ namespace ImmutableList
             int pos = 0;
             while (pos < endPos)
             {
-                while (pos < str.Length && char.IsWhiteSpace(str[pos]))
-                    pos++;
+                GotoPrintChar (str, ref pos);
                 if (pos >= str.Length)
                     break;
-                if(!TestSingleItem(str, ref pos, null))
+                if (!TestSingleItem(str, ref pos))
                     return false;
             }
             if (endPos + 2 < str.Length)
@@ -440,43 +484,9 @@ namespace ImmutableList
             return true;
         }
 
-        protected bool TestOneOf(string str)
+        protected bool TestSingleItem(string str, ref int pos)
         {
-            int endPos = str.LastIndexOf("->");
-            if (endPos < 0)
-                endPos = str.Length;
-            string varName = null;
-            if (endPos + 2 < str.Length)
-            {
-                varName = str.Substring(endPos + 2).Trim();
-                if (varName == "" || varName[0] != '_')
-                    varName = null;
-            }
-            int pos = 0;
-            while (pos < str.Length && char.IsWhiteSpace(str[pos]))
-                pos++;
-            if (pos >= endPos)
-            {
-                if (varName != null)
-                    Add2Result(varName, "");
-                return true;
-            }
-            while (pos < endPos)
-            {
-                while (pos < str.Length && char.IsWhiteSpace(str[pos]))
-                    pos++;
-                if (pos >= str.Length)
-                    break;
-                if (TestSingleItem(str, ref pos, varName))
-                    return true;
-            }
-            return false;
-        }
-
-        protected bool TestSingleItem(string str, ref int pos, string varName)
-        {
-            while (pos < str.Length && char.IsWhiteSpace(str[pos]))
-                pos++;
+            GotoPrintChar(str, ref pos);
             GotoPrintChar();
             if (pos >= str.Length)
                 return true;
@@ -500,9 +510,13 @@ namespace ImmutableList
                 CurrentPos = savePos;
                 return false;
             }
-            if (varName != null)
-                Add2Result(varName, str.Substring(itemBegin, pos - itemBegin).Trim());
             return true;
+        }
+
+        public static void GotoPrintChar(string str, ref int pos)
+        {
+            while (pos < str.Length && char.IsWhiteSpace(str[pos]))
+                pos++;
         }
 
         public char GotoPrintChar()
