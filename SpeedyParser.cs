@@ -53,7 +53,7 @@ namespace ImmutableList
                             p.Eat("table"),
                             p.If("on",
                                 p.Eat("_"))),
-                        p.If("where", 
+                        p.If("where",
                             p.Eat("_"))))
                 && p.Eof;
 
@@ -264,7 +264,7 @@ namespace ImmutableList
                     return (une != null) ? Expression.IsTrue(CompileExpression(une.Operand)) : expr;
                 case ExpressionType.Lambda:	    // a => a + a
                     var lambda_e = expr as LambdaExpression;
-                    return (lambda_e == null)? expr : Expression.Lambda(CompileExpression(lambda_e.Body), lambda_e.Parameters);
+                    return (lambda_e == null) ? expr : Expression.Lambda(CompileExpression(lambda_e.Body), lambda_e.Parameters);
                 case ExpressionType.Quote:	    // An expression that has a constant value of type Expression. A Quote node can contain references to parameters that are defined in the context of the expression it represents.
                     return (une != null) ? Expression.Quote(CompileExpression(une.Operand)) : expr;
                 case ExpressionType.Dynamic:    // A dynamic operation.
@@ -332,7 +332,7 @@ namespace ImmutableList
         {
             string searchMethod = methodName + "_implementation";
             var res = typeof(SpeedyParser).GetMethod(searchMethod, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            if(res == null)
+            if (res == null)
                 throw new ECompilationError(string.Format("Method {0} not found", searchMethod));
             return res;
         }
@@ -345,7 +345,7 @@ namespace ImmutableList
             if (obj is string[])
             {
                 string[] sents = obj as string[];
-                foreach(string sentinel in sents)
+                foreach (string sentinel in sents)
                     Sentinels.Add(sentinel);
             }
         }
@@ -372,7 +372,7 @@ namespace ImmutableList
             for (int i_res = startInx; i_res < arguments.Count; i_res++)
             {
                 Expression expr = arguments[i_res];
-                if(expr.NodeType != ExpressionType.NewArrayInit)
+                if (expr.NodeType != ExpressionType.NewArrayInit)
                     res[i_res] = expr;
                 else
                 {
@@ -382,7 +382,7 @@ namespace ImmutableList
                     else
                     {
                         var lambdas = new Expression[na_e.Expressions.Count];
-                        for(int i=0; i < na_e.Expressions.Count; i++)
+                        for (int i = 0; i < na_e.Expressions.Count; i++)
                             lambdas[i] = Expression.Lambda(CompileExpression(na_e.Expressions[i]));
                         res[i_res] = Expression.NewArrayInit(typeof(Func<bool>), lambdas);
                     }
@@ -470,7 +470,40 @@ namespace ImmutableList
 
         public bool Eat(string varName)
         {
+            GotoPrintChar();
+            long startPos = CurrentPos;
+            long endPos = -1;
+            while (GotoPrintChar() != '\0' && !PointsAtSentinel())
+                if (!IsIdentChar(GetCharAt(CurrentPos)))
+                    CurrentPos++;
+                else
+                    while (IsIdentChar(GetCharAt(CurrentPos)))
+                        CurrentPos++;
+            if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
+                Add2Result(varName, GetInputSubstring(startPos, (endPos < 0) ? CurrentPos : endPos).Trim());
             return true;
+        }
+
+        private string GetInputSubstring(long startPos, long endPos)
+        {
+            return MyString.Substring((int)startPos, (int)(endPos - startPos));
+        }
+
+        private bool PointsAtSentinel()
+        {
+            long startPos = CurrentPos;
+            for (int i = Sentinels.Count - 1; i >= 0; i--)
+            {
+                CurrentPos = startPos;
+                int pos = 0;
+                if (TestSingleItem(Sentinels[i], ref pos))
+                {
+                    CurrentPos = startPos;
+                    return true;
+                }
+            }
+            CurrentPos = startPos;
+            return false;
         }
 
         public bool Eof
@@ -527,7 +560,7 @@ namespace ImmutableList
             int pos = 0;
             while (pos < endPos)
             {
-                GotoPrintChar (str, ref pos);
+                GotoPrintChar(str, ref pos);
                 if (pos >= str.Length)
                     break;
                 if (!TestSingleItem(str, ref pos))
