@@ -560,7 +560,7 @@ namespace ImmutableList
             while (pos < endPos)
             {
                 GotoPrintChar(str, ref pos);
-                if (pos >= str.Length)
+                if (pos >= endPos)
                     break;
                 if (!TestSingleItem(str, ref pos))
                     return false;
