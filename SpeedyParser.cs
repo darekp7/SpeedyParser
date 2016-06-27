@@ -413,7 +413,7 @@ namespace ImmutableList
 
         protected bool If_implementation(string str, Func<bool>[] body)
         {
-            if (!Test(str))
+            if (!Test(str, advanceIfMatched: true))
                 return true;
             if (body != null)
                 foreach (var f in body)
@@ -445,7 +445,7 @@ namespace ImmutableList
 
         protected bool While_implementation(string str, Func<bool>[] body)
         {
-            while (Test(str))
+            while (Test(str, advanceIfMatched: true))
                 if (body != null)
                     foreach (var f in body)
                         if (!f())
@@ -494,8 +494,7 @@ namespace ImmutableList
             for (int i = Sentinels.Count - 1; i >= 0; i--)
             {
                 CurrentPos = startPos;
-                int pos = 0;
-                if (TestSingleItem(Sentinels[i], ref pos))
+                if (Test(Sentinels[i], advanceIfMatched: false))
                 {
                     CurrentPos = startPos;
                     return true;
@@ -543,34 +542,37 @@ namespace ImmutableList
         protected bool TestOneOf(string[] sentinels)
         {
             GotoPrintChar();
-            long savePos = CurrentPos;
             foreach (string sent in sentinels)
-                if (Test(sent))
+                if (Test(sent, advanceIfMatched: true))
                     return true;
-            CurrentPos = savePos;
             return false;
         }
 
-        protected bool Test(string str)
+        public bool Test(string pattern, bool advanceIfMatched)
         {
-            int endPos = str.LastIndexOf("->");
+            int endPos = pattern.LastIndexOf("->");
             if (endPos < 0)
-                endPos = str.Length;
-            int pos = 0;
-            while (pos < endPos)
+                endPos = pattern.Length;
+            GotoPrintChar();
+            long savePos = CurrentPos;
+            int pattPos = 0;
+            while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
             {
-                GotoPrintChar(str, ref pos);
-                if (pos >= endPos)
-                    break;
-                if (!TestSingleItem(str, ref pos))
+                CurrentPos = savePos;
+                if (!TestSingleItem(pattern, ref pattPos))
+                {
+                    CurrentPos = savePos;
                     return false;
+                }
             }
-            if (endPos + 2 < str.Length)
+            if (!advanceIfMatched)
+                CurrentPos = savePos;
+            if (endPos + 2 < pattern.Length)
             {
-                string varName = str.Substring(endPos + 2).Trim();
+                string varName = pattern.Substring(endPos + 2).Trim();
                 if (varName != "" && varName[0] != '_')
                 {
-                    string varValue = str.Substring(0, endPos).Trim();
+                    string varValue = pattern.Substring(0, endPos).Trim();
                     Add2Result(varName, varValue);
                 }
             }
@@ -579,37 +581,31 @@ namespace ImmutableList
 
         protected bool TestSingleItem(string str, ref int pos)
         {
-            GotoPrintChar(str, ref pos);
+            pos = PatternGotoPrintChar(str, pos);
             GotoPrintChar();
             if (pos >= str.Length)
                 return true;
             if (CurrentPos > 0 && IsIdentChar(str[pos]) && IsIdentChar(GetCharAt(CurrentPos - 1)))
                 return false;
-            long savePos = CurrentPos;
             int itemBegin = pos;
             while (pos < str.Length && !char.IsWhiteSpace(str[pos]))
             {
                 char c = GetCharAt(CurrentPos);
                 if (c != str[pos] && (IsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
-                {
-                    CurrentPos = savePos;
                     return false;
-                }
                 CurrentPos++;
                 pos++;
             }
             if (CurrentPos < MyString.Length && IsIdentChar(str[pos - 1]) && IsIdentChar(GetCharAt(CurrentPos)))
-            {
-                CurrentPos = savePos;
                 return false;
-            }
             return true;
         }
 
-        public static void GotoPrintChar(string str, ref int pos)
+        public static int PatternGotoPrintChar(string pattern, int pos)
         {
-            while (pos < str.Length && char.IsWhiteSpace(str[pos]))
+            while (pos < pattern.Length && char.IsWhiteSpace(pattern[pos]))
                 pos++;
+            return pos;
         }
 
         public char GotoPrintChar()
