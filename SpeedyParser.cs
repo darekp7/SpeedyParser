@@ -17,12 +17,12 @@ namespace ImmutableList
     {
         protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
-        public bool IsCaseSensitive;
-        public bool IsBracketSensitive;
-        private bool FDoubleQuoteIsCpp;
-        private bool FDoubleQuoteIsSql;
-        private bool FSingleQuoteIsCpp;
-        private bool FSingleQuoteIsSql;
+        protected bool FIsCaseSensitive = true;
+        protected bool FIsBracketSensitive = true;
+        protected bool FDoubleQuoteIsCpp = true;
+        protected bool FDoubleQuoteIsSql = false;
+        protected bool FSingleQuoteIsCpp = true;
+        protected bool FSingleQuoteIsSql = false;
 
         public Dictionary<string, List<string>> Result = null;
         protected List<string> Sentinels;
@@ -31,7 +31,7 @@ namespace ImmutableList
         protected string MyString = "";
         protected long CurrentPos = 0;
 
-        private SpeedyParser()
+        protected SpeedyParser()
         {
         }
 
@@ -42,60 +42,12 @@ namespace ImmutableList
             Body = CompiledExpression.Compile();
         }
 
-        public static void Test()
-        {
-            Expression<Func<SpeedyParser, bool>> parserBody = (p) =>
-                p.If("select",
-                    p.Eat("_"),
-                    p.If("from",
-                        p.Eat("table"),
-                        p.While("join",
-                            p.Eat("table"),
-                            p.If("on",
-                                p.Eat("_"))),
-                        p.If("where",
-                            p.Eat("_"))))
-                && p.Eof;
-
-            Expression<Func<SpeedyParser, bool>> parserBody2 = (p) =>
-                p.Eat("skladnik")
-                && p.WhileOneOf(new[] { "+ -> operator", "- -> operator" },
-                    p.Eat("skladnik"))
-                && p.Eof;
-
-            /*Expression<Func<SpeedyParser, bool>> parserBody2 = (p) =>
-                p.If("select _columns",
-                    p.If("from table",
-                        p.While("join", (str) => p.If(str),
-                            p.If("on _")),
-                        p.If("where _")));*/
-
-            var k = parserBody.Body.NodeType;
-
-            int i = 0;
-
-            Expression<Func<int, int>> x = n => n + i;
-            SpeedyParser spp = new SpeedyParser(null);
-            Expression<Func<bool>> bf = () => spp.If("");
-            var a = bf.Body;
-            if (a is MethodCallExpression)
-            {
-                var a1 = a as MethodCallExpression;
-                if (a1.Method.Name == "If" && a1.Object.Type == typeof(SpeedyParser))
-                {
-                    System.Windows.Forms.MessageBox.Show(a1.Method.Name);
-                    i++;
-                }
-            }
-            i++;
-        }
-
         public SpeedyParser Clone()
         {
             SpeedyParser sp = new SpeedyParser();
             sp.Body = Body;
-            sp.IsCaseSensitive = IsCaseSensitive;
-            sp.IsBracketSensitive = IsBracketSensitive;
+            sp.FIsCaseSensitive = FIsCaseSensitive;
+            sp.FIsBracketSensitive = FIsBracketSensitive;
             sp.FDoubleQuoteIsCpp = FDoubleQuoteIsCpp;
             sp.FDoubleQuoteIsSql = FDoubleQuoteIsSql;
             sp.FSingleQuoteIsCpp = FSingleQuoteIsCpp;
@@ -118,7 +70,7 @@ namespace ImmutableList
             return Body(this);
         }
 
-        private Expression CompileExpression(Expression expr)
+        protected virtual Expression CompileExpression(Expression expr)
         {
             // https://msdn.microsoft.com/pl-pl/library/bb352032(v=vs.110).aspx
             // good examples:
@@ -291,7 +243,7 @@ namespace ImmutableList
             }
         }
 
-        private Expression CompileCall(MethodCallExpression expr)
+        protected virtual Expression CompileCall(MethodCallExpression expr)
         {
             if (expr.Object.Type == typeof(SpeedyParser))
             {
@@ -300,19 +252,13 @@ namespace ImmutableList
                 {
                     case "If":
                     case "While":
-                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "sentinel")
-                        {
-                            TryEvaluateSentinel(expr.Arguments[0], expr.Method.Name, 0);
-                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Method.Name), ConvertArgumentsToLambdas(expr.Arguments, 1));
-                        }
-                        break;
                     case "IfOneOf":
                     case "WhileOneOf":
-                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "sentinels")
+                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
                         {
-                            TryEvaluateSentinels(expr.Arguments[0], expr.Method.Name, 0);
+                            TryAddSentinels(expr.Arguments[0], expr.Method.Name, 0);
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1);
-                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Method.Name), args);
+                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
                 }
@@ -328,29 +274,16 @@ namespace ImmutableList
             }
         }
 
-        public static System.Reflection.MethodInfo GetImplementationMethod(string methodName)
+        public static System.Reflection.MethodInfo GetImplementationMethod(Type objectType, string methodName)
         {
             string searchMethod = methodName + "_implementation";
-            var res = typeof(SpeedyParser).GetMethod(searchMethod, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var res = objectType.GetMethod(searchMethod, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             if (res == null)
                 throw new ECompilationError(string.Format("Method {0} not found", searchMethod));
             return res;
         }
 
-        private void TryEvaluateSentinels(Expression expr, string callingFunction, int paramInx)
-        {
-            object obj = Evaluate(expr, callingFunction, paramInx);
-            if (obj == null)
-                throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
-            if (obj is string[])
-            {
-                string[] sents = obj as string[];
-                foreach (string sentinel in sents)
-                    Sentinels.Add(sentinel);
-            }
-        }
-
-        private void TryEvaluateSentinel(Expression expr, string callingFunction, int paramInx)
+        private void TryAddSentinels(Expression expr, string callingFunction, int paramInx)
         {
             object obj = Evaluate(expr, callingFunction, paramInx);
             if (obj == null)
@@ -361,6 +294,12 @@ namespace ImmutableList
                 if (sents == "")
                     throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
                 Sentinels.Add(sents);
+            }
+            if (obj is string[])
+            {
+                string[] sents = obj as string[];
+                foreach (string sentinel in sents)
+                    Sentinels.Add(sentinel);
             }
         }
 
@@ -413,7 +352,7 @@ namespace ImmutableList
 
         protected bool If_implementation(string str, Func<bool>[] body)
         {
-            if (!Test(str, advanceIfMatched: true))
+            if (!Test(str, consumeInput: true))
                 return true;
             if (body != null)
                 foreach (var f in body)
@@ -445,7 +384,7 @@ namespace ImmutableList
 
         protected bool While_implementation(string str, Func<bool>[] body)
         {
-            while (Test(str, advanceIfMatched: true))
+            while (Test(str, consumeInput: true))
                 if (body != null)
                     foreach (var f in body)
                         if (!f())
@@ -494,7 +433,7 @@ namespace ImmutableList
             for (int i = Sentinels.Count - 1; i >= 0; i--)
             {
                 CurrentPos = startPos;
-                if (Test(Sentinels[i], advanceIfMatched: false))
+                if (Test(Sentinels[i], consumeInput: false))
                 {
                     CurrentPos = startPos;
                     return true;
@@ -510,6 +449,18 @@ namespace ImmutableList
             {
                 return GotoPrintChar() == '\0';
             }
+        }
+
+        public bool CaseSensitive(bool value)
+        {
+            FIsCaseSensitive = value;
+            return true;
+        }
+
+        public bool BracketSensitive(bool value)
+        {
+            FIsBracketSensitive = value;
+            return true;
         }
 
         public bool SetIdentChars(string str)
@@ -543,12 +494,12 @@ namespace ImmutableList
         {
             GotoPrintChar();
             foreach (string sent in sentinels)
-                if (Test(sent, advanceIfMatched: true))
+                if (Test(sent, consumeInput: true))
                     return true;
             return false;
         }
 
-        public bool Test(string pattern, bool advanceIfMatched)
+        public bool Test(string pattern, bool consumeInput)
         {
             int endPos = pattern.LastIndexOf("->");
             if (endPos < 0)
@@ -565,9 +516,9 @@ namespace ImmutableList
                     return false;
                 }
             }
-            if (!advanceIfMatched)
+            if (!consumeInput)
                 CurrentPos = savePos;
-            if (endPos + 2 < pattern.Length)
+            else if (endPos + 2 < pattern.Length)
             {
                 string varName = pattern.Substring(endPos + 2).Trim();
                 if (varName != "" && varName[0] != '_')
@@ -591,7 +542,7 @@ namespace ImmutableList
             while (pos < str.Length && !char.IsWhiteSpace(str[pos]))
             {
                 char c = GetCharAt(CurrentPos);
-                if (c != str[pos] && (IsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
+                if (c != str[pos] && (FIsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
                     return false;
                 CurrentPos++;
                 pos++;
