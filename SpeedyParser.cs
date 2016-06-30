@@ -15,19 +15,82 @@ namespace ImmutableList
 {
     class SpeedyParser
     {
+        /// <summary>
+        /// How to treat quotation marks (apostrophe and/or double quote).
+        /// </summary>
+        public enum QuoteSensitivity
+        {
+            /// <summary>
+            /// Treat as ordinary character with no special meaning.
+            /// </summary>
+            Insensitive,
+
+            /// <summary>
+            /// Text enclosed in quotation marks is treated as single literal.
+            /// </summary>
+            Sensitive,
+
+            /// <summary>
+            /// Text enclosed in quotation marks is treated as single literal, escape character are allowed (like in C, C++, C#, Java, ...).
+            /// </summary>
+            CSharpLike,
+
+            /// <summary>
+            /// Text enclosed in quotation marks is treated as single literal, duplicating quotation mark is allowed (like in SQL, Delphi etc.)
+            /// </summary>
+            SqlLike
+        }
+
+        /// <summary>
+        /// Parser options.
+        /// </summary>
+        public class ParserOptions
+        {
+            /// <summary>
+            /// When true, the upper case and lower case in the input are treated as different chars.
+            /// </summary>
+            public bool IsCaseSensitive = true;
+
+            /// <summary>
+            /// Additional characters identifiers are made of (by default identifiers can contain letters and/or digits).
+            /// </summary>
+            public string IdentCharsEx = "_";
+
+            /// <summary>
+            /// When true, the text contained in bracket is indivisible for parser.
+            /// </summary>
+            public bool IsBracketSensitive = true;
+
+            /// <summary>
+            /// How to treat double qoutation mark (").
+            /// </summary>
+            public QuoteSensitivity DoubleQuoteSensitivity = QuoteSensitivity.CSharpLike;
+
+            /// <summary>
+            /// How to treat single qoutation mark (').
+            /// </summary>
+            public QuoteSensitivity SingleQuoteSensitivity = QuoteSensitivity.CSharpLike;
+
+            /// <summary>
+            /// Exception to be thrown when opening bracket without corresponding closing bracket is found.
+            /// If this field is set to null, the parser ignores the error.
+            /// </summary>
+            public Func<SpeedyParser, Exception> MissingClosingBracketError = null;
+
+            /// <summary>
+            /// Exception to be thrown when closing quote is missing.
+            /// If this field is set to null, the parser ignores the error.
+            /// </summary>
+            public Func<SpeedyParser, Exception> MissingClosingQuoteError = null;
+        }
+
+        public ParserOptions Options;
         protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
-        protected bool FIsCaseSensitive = true;
-        protected bool FIsBracketSensitive = true;
-        protected bool FDoubleQuoteIsCpp = true;
-        protected bool FDoubleQuoteIsSql = false;
-        protected bool FSingleQuoteIsCpp = true;
-        protected bool FSingleQuoteIsSql = false;
 
         public Dictionary<string, List<string>> Result = null;
         protected List<string> Sentinels;
 
-        protected string IdentCharsEx = "_";
         protected string MyString = "";
         protected long CurrentPos = 0;
 
@@ -35,8 +98,9 @@ namespace ImmutableList
         {
         }
 
-        public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
+        public SpeedyParser(ParserOptions options, Expression<Func<SpeedyParser, bool>> parserBody)
         {
+            Options = options ?? new ParserOptions();
             Sentinels = new List<string>();
             CompiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
             Body = CompiledExpression.Compile();
@@ -44,22 +108,15 @@ namespace ImmutableList
 
         public SpeedyParser Clone()
         {
-            SpeedyParser sp = new SpeedyParser();
-            sp.Body = Body;
-            sp.FIsCaseSensitive = FIsCaseSensitive;
-            sp.FIsBracketSensitive = FIsBracketSensitive;
-            sp.FDoubleQuoteIsCpp = FDoubleQuoteIsCpp;
-            sp.FDoubleQuoteIsSql = FDoubleQuoteIsSql;
-            sp.FSingleQuoteIsCpp = FSingleQuoteIsCpp;
-            sp.FSingleQuoteIsSql = FSingleQuoteIsSql;
-            sp.Result = null;
-            sp.Sentinels = Sentinels;
-
-            sp.IdentCharsEx = IdentCharsEx;
-            sp.MyString = "";
-            sp.CurrentPos = 0;
-
-            return sp;
+            return new SpeedyParser()
+            {
+                Body = this.Body,
+                Options = this.Options,
+                Result = null,
+                Sentinels = Sentinels,
+                MyString = "",
+                CurrentPos = 0
+            };
         }
 
         public bool TryMatch(string str)
@@ -412,14 +469,119 @@ namespace ImmutableList
             GotoPrintChar();
             long startPos = CurrentPos;
             while (GotoPrintChar() != '\0' && !PointsAtSentinel())
-                if (!IsIdentChar(GetCharAt(CurrentPos)))
-                    CurrentPos++;
-                else
-                    while (IsIdentChar(GetCharAt(CurrentPos)))
-                        CurrentPos++;
+                GotoNextMatchingPos();
             if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
                 Add2Result(varName, GetInputSubstring(startPos, CurrentPos).Trim());
             return true;
+        }
+
+        private void GotoNextMatchingPos()
+        {
+            switch (GetCharAt(CurrentPos))
+            {
+                case '\'':
+                    GotoClosingQuote('\'');
+                    break;
+                case '"':
+                    GotoClosingQuote('"');
+                    break;
+                case '(':
+                    if (Options.IsBracketSensitive)
+                        GotoClosingBracket(')');
+                    break;
+                case '[':
+                    if (Options.IsBracketSensitive)
+                        GotoClosingBracket(']');
+                    break;
+                case '{':
+                    if (Options.IsBracketSensitive)
+                        GotoClosingBracket('}');
+                    break;
+            }
+            if (!IsIdentChar(GetCharAt(CurrentPos)))
+                CurrentPos++;
+            else
+                while (IsIdentChar(GetCharAt(CurrentPos)))
+                    CurrentPos++;
+        }
+
+        private void GotoClosingBracket(char closing_bracket)
+        {
+            CurrentPos++;
+            int n_brackets = 1;
+            char c;
+            while ((c = GetCharAt(++CurrentPos)) != '\0')
+                switch (c)
+                {
+                    case '\'':
+                        GotoClosingQuote('\'');
+                        break;
+                    case '"':
+                        GotoClosingQuote('"');
+                        break;
+                    case '(':
+                    case '[':
+                    case '{':
+                        if (Options.MissingClosingBracketError != null)
+                            GotoClosingBracket((c == '(') ? ')' : (c == '[') ? ']' : '}');
+                        else
+                            n_brackets++;
+                        break;
+                    case ')':
+                    case ']':
+                    case '}':
+                        if (c == closing_bracket)
+                            return;
+                        else if (Options.MissingClosingBracketError != null)
+                            throw Options.MissingClosingBracketError(this);
+                        else if (--n_brackets <= 0)
+                            return;
+                        break;
+                }
+            if (Options.MissingClosingBracketError != null)
+                throw Options.MissingClosingBracketError(this);
+        }
+
+        private void GotoClosingQuote(char closing_quote)
+        {
+            char c;
+            switch ((closing_quote == '\'') ? Options.SingleQuoteSensitivity : Options.DoubleQuoteSensitivity)
+            {
+                case QuoteSensitivity.Insensitive:
+                    return;
+                case QuoteSensitivity.Sensitive:
+                    while ((c = GetCharAt(++CurrentPos)) != closing_quote)
+                        if (c == '\0')
+                        {
+                            if (Options.MissingClosingQuoteError != null)
+                                throw Options.MissingClosingQuoteError(this);
+                            return;
+                        }
+                    return;
+                case QuoteSensitivity.CSharpLike:
+                    while ((c = GetCharAt(++CurrentPos)) != closing_quote)
+                        switch (c)
+                        {
+                            case '\0':
+                                if (Options.MissingClosingQuoteError != null)
+                                    throw Options.MissingClosingQuoteError(this);
+                                return;
+                            case '\\':
+                                CurrentPos++;
+                                break;
+                        }
+                    return;
+                case QuoteSensitivity.SqlLike:
+                    while ((c = GetCharAt(++CurrentPos)) != '\0')
+                        if (c == closing_quote)
+                            if (GetCharAt(CurrentPos + 1) == closing_quote)
+                                CurrentPos++;
+                            else
+                                return;
+                    if (Options.MissingClosingQuoteError != null)
+                        throw Options.MissingClosingQuoteError(this);
+                    return;
+            }
         }
 
         private string GetInputSubstring(long startPos, long endPos)
@@ -451,28 +613,6 @@ namespace ImmutableList
             }
         }
 
-        public bool CaseSensitive(bool value)
-        {
-            FIsCaseSensitive = value;
-            return true;
-        }
-
-        public bool BracketSensitive(bool value)
-        {
-            FIsBracketSensitive = value;
-            return true;
-        }
-
-        public bool SetIdentChars(string str)
-        {
-            StringBuilder sb = new StringBuilder();
-            foreach (char c in str ?? "")
-                if (!char.IsWhiteSpace(c))
-                    sb.Append(c);
-            IdentCharsEx = sb.ToString();
-            return true;
-        }
-
         public bool Add2Result(string varName, string varValue)
         {
             varName = varName ?? "";
@@ -487,7 +627,7 @@ namespace ImmutableList
 
         public virtual bool IsIdentChar(char c)
         {
-            return char.IsLetterOrDigit(c) || IdentCharsEx.IndexOf(c) >= 0;
+            return char.IsLetterOrDigit(c) || Options.IdentCharsEx != null && Options.IdentCharsEx.IndexOf(c) >= 0;
         }
 
         protected bool TestOneOf(string[] sentinels)
@@ -542,7 +682,7 @@ namespace ImmutableList
             while (pos < str.Length && !char.IsWhiteSpace(str[pos]))
             {
                 char c = GetCharAt(CurrentPos);
-                if (c != str[pos] && (FIsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
+                if (c != str[pos] && (Options.IsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
                     return false;
                 CurrentPos++;
                 pos++;
