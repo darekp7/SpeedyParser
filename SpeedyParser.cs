@@ -47,12 +47,12 @@ namespace ImmutableList
         public class ParserOptions
         {
             /// <summary>
-            /// When true, the upper case and lower case in the input are treated as different chars.
+            /// When true, the upper case and lower case in the input are treated as different characters.
             /// </summary>
             public bool IsCaseSensitive = true;
 
             /// <summary>
-            /// Additional characters identifiers are made of (by default identifiers can contain letters and/or digits).
+            /// Additional characters identifiers are made of (if null or empty, identifiers can contain only letters and/or digits).
             /// </summary>
             public string IdentCharsEx = "_";
 
@@ -82,9 +82,20 @@ namespace ImmutableList
             /// If this field is set to null, the parser ignores the error.
             /// </summary>
             public Func<SpeedyParser, Exception> MissingClosingQuoteError = null;
+
+            /// <summary>
+            /// List of comments, if the second string in tuple is null or empty, the tuple denotes
+            /// single line comment (to the end of line).
+            /// 
+            /// Example (C# comments):
+            ///     new Tuple<string,string>[] { new Tuple<string,string>("//", ""), new Tuple<string,string>("/*", "*/") }
+            /// </summary>
+            public Tuple<string, string>[] Comments = null;
         }
 
-        public ParserOptions Options;
+        private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
+
+        public ParserOptions Options = DefaultParserOptions;
         protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
 
@@ -98,9 +109,8 @@ namespace ImmutableList
         {
         }
 
-        public SpeedyParser(ParserOptions options, Expression<Func<SpeedyParser, bool>> parserBody)
+        public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
-            Options = options ?? new ParserOptions();
             Sentinels = new List<string>();
             CompiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
             Body = CompiledExpression.Compile();
@@ -387,7 +397,7 @@ namespace ImmutableList
             return res;
         }
 
-        public static object Evaluate(Expression expr, string callingFunction, int paramInx)
+        protected static object Evaluate(Expression expr, string callingFunction, int paramInx)
         {
             //A little optimization for constant expressions
             if (expr.NodeType == ExpressionType.Constant)
@@ -400,6 +410,12 @@ namespace ImmutableList
             {
                 throw new ECompilationError(string.Format("Cannot evaluate parameter {0} of function {1}", paramInx + 1, callingFunction));
             }
+        }
+
+        public bool SetOptions(ParserOptions opt)
+        {
+            Options = opt ?? DefaultParserOptions;
+            return true;
         }
 
         public bool If(string sentinel, params bool[] body)
@@ -700,6 +716,44 @@ namespace ImmutableList
         }
 
         public char GotoPrintChar()
+        {
+            if (Options.Comments == null)
+                return GotoPrintChar_Basic();
+            char c;
+            while ((c = GotoPrintChar_Basic()) != '\0')
+            {
+                Tuple<string, string> comm = FindMatchingComment();
+                if (comm == null)
+                    return c;
+                CurrentPos += comm.Item1.Length;
+                if (comm.Item2 == null || comm.Item2.Length <= 0)
+                    while ((c = GetCharAt(CurrentPos)) != '\0' && c != '\n' && c != '\r')
+                        CurrentPos++;
+                else
+                {
+                }
+            }
+            return c;
+        }
+
+        private Tuple<string, string> FindMatchingComment()
+        {
+            foreach (var comm in Options.Comments)
+                if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
+                    return comm;
+            return null;
+        }
+
+        private bool TestSubstring(string str)
+        {
+            for (int i = 0; i < str.Length; i++)
+                if (GetCharAt(CurrentPos + i) != str[i])
+                    return false;
+            CurrentPos += str.Length;
+            return true;
+        }
+
+        public char GotoPrintChar_Basic()
         {
             char c;
             while ((c = GetCharAt(CurrentPos)) != '\0' && char.IsWhiteSpace(c))
