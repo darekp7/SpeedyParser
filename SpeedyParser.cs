@@ -102,6 +102,119 @@ namespace ImmutableList
             public Func<SpeedyParser, Exception> OnMissingEndOfComment = null;
         }
 
+        protected struct ParserInput
+        {
+            public SpeedyParser Owner;
+            private string MyString;
+            private long FCurrentPos;
+
+            public ParserInput(SpeedyParser sp_owner, string str, int pos)
+            {
+                Owner = sp_owner;
+                MyString = str = str ?? "";
+                FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
+            }
+
+            public long CurrentPos
+            {
+                get
+                {
+                    return FCurrentPos;
+                }
+            }
+
+            public ParserOptions Options
+            {
+                get
+                {
+                    return Owner.Options;
+                }
+            }
+
+            public char GotoPrintChar()
+            {
+                if (Options.Comments == null || Options.Comments.Length <= 0)
+                    return GotoPrintChar_Basic();
+                char c;
+                while ((c = GotoPrintChar_Basic()) != '\0')
+                {
+                    Tuple<string, string> comm = FindMatchingComment();
+                    if (comm == null)
+                        return c;
+                    if (comm.Item2 == null || comm.Item2.Length <= 0)
+                        while ((c = GetCharAt(FCurrentPos)) != '\0' && c != '\n' && c != '\r')
+                            FCurrentPos++;
+                    else
+                    {
+                        bool end_of_comment_found = false;
+                        for (; (c = GetCharAt(FCurrentPos)) != '\0'; FCurrentPos++)
+                            if (TestSubstring(comm.Item2))
+                            {
+                                end_of_comment_found = true;
+                                break;
+                            }
+                        if (!end_of_comment_found)
+                        {
+                            Exception exc;
+                            if (Options.OnMissingEndOfComment != null && (exc = Options.OnMissingEndOfComment(Owner)) != null)
+                                throw exc;
+                        }
+                    }
+                }
+                return c;
+            }
+
+            private char GotoPrintChar_Basic()
+            {
+                char c;
+                while ((c = GetCharAt(FCurrentPos)) != '\0' && char.IsWhiteSpace(c))
+                    FCurrentPos++;
+                return c;
+            }
+
+            public bool CharBeforeCurrentPosIsIdentChar()
+            {
+                return (FCurrentPos <= 0) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos));
+            }
+
+            public char GetCharAt(long pos)
+            {
+                return (pos < 0 || pos >= MyString.Length) ? '\0' : MyString[(int)pos];
+            }
+
+            public char Advance()
+            {
+                return GetCharAt(++FCurrentPos);
+            }
+
+            public void AdvanceToPos(long pos)
+            {
+                FCurrentPos = pos;
+            }
+
+            private bool TestSubstring(string str)
+            {
+                for (int i = 0; i < str.Length; i++)
+                    if (GetCharAt(FCurrentPos + i) != str[i])
+                        return false;
+                FCurrentPos += str.Length;
+                return true;
+            }
+
+            private Tuple<string, string> FindMatchingComment()
+            {
+                foreach (var comm in Options.Comments)
+                    if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
+                        return comm;
+                return null;
+            }
+
+            public string GetInputSubstring(long startPos, long endPos)
+            {
+                return MyString.Substring((int)startPos, (int)(endPos - startPos));
+            }
+        }
+
         private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
 
         public ParserOptions Options = DefaultParserOptions;
@@ -111,8 +224,7 @@ namespace ImmutableList
         public Dictionary<string, List<string>> Result = null;
         protected List<string> Sentinels;
 
-        protected string MyString = "";
-        protected long CurrentPos = 0;
+        protected ParserInput MyInput;
 
         protected SpeedyParser()
         {
@@ -133,16 +245,13 @@ namespace ImmutableList
                 Options = this.Options,
                 Result = null,
                 Sentinels = Sentinels,
-                MyString = "",
-                CurrentPos = 0
+                MyInput = this.MyInput
             };
         }
 
         public bool TryMatch(string str)
         {
-            MyString = str;
-            CurrentPos = 0;
-
+            MyInput = new ParserInput(this, str, 0);
             return Body(this);
         }
 
@@ -512,18 +621,18 @@ namespace ImmutableList
 
         public bool Eat(string varName)
         {
-            GotoPrintChar();
-            long startPos = CurrentPos;
-            while (GotoPrintChar() != '\0' && !PointsAtSentinel())
+            MyInput.GotoPrintChar();
+            long startPos = MyInput.CurrentPos;
+            while (MyInput.GotoPrintChar() != '\0' && !PointsAtSentinel())
                 GotoNextMatchingPos();
             if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
-                Add2Result(varName, GetInputSubstring(startPos, CurrentPos).Trim());
+                Add2Result(varName, MyInput.GetInputSubstring(startPos, MyInput.CurrentPos).Trim());
             return true;
         }
 
         private void GotoNextMatchingPos()
         {
-            switch (GetCharAt(CurrentPos))
+            switch (MyInput.GetCharAt(MyInput.CurrentPos))
             {
                 case '\'':
                     GotoClosingQuote('\'');
@@ -544,18 +653,18 @@ namespace ImmutableList
                         GotoClosingBracket('}');
                     break;
             }
-            if (!IsIdentChar(GetCharAt(CurrentPos)))
-                CurrentPos++;
+            if (!IsIdentChar(MyInput.GetCharAt(MyInput.CurrentPos)))
+                MyInput.Advance();
             else
-                while (IsIdentChar(GetCharAt(CurrentPos)))
-                    CurrentPos++;
+                while (IsIdentChar(MyInput.GetCharAt(MyInput.CurrentPos)))
+                    MyInput.Advance();
         }
 
         private void GotoClosingBracket(char closing_bracket)
         {
             int n_brackets = 1;
             char c;
-            while ((c = GetCharAt(++CurrentPos)) != '\0')
+            while ((c = MyInput.Advance()) != '\0')
                 switch (c)
                 {
                     case '\'':
@@ -597,7 +706,7 @@ namespace ImmutableList
                 case QuoteSensitivity.Insensitive:
                     return;
                 case QuoteSensitivity.Sensitive:
-                    while ((c = GetCharAt(++CurrentPos)) != closing_quote)
+                    while ((c = MyInput.Advance()) != closing_quote)
                         if (c == '\0')
                         {
                             Exception exc;
@@ -607,7 +716,7 @@ namespace ImmutableList
                         }
                     return;
                 case QuoteSensitivity.CSharpLike:
-                    while ((c = GetCharAt(++CurrentPos)) != closing_quote)
+                    while ((c = MyInput.Advance()) != closing_quote)
                         switch (c)
                         {
                             case '\0':
@@ -616,15 +725,15 @@ namespace ImmutableList
                                     throw exc;
                                 return;
                             case '\\':
-                                CurrentPos++;
+                                MyInput.Advance();
                                 break;
                         }
                     return;
                 case QuoteSensitivity.SqlLike:
-                    while ((c = GetCharAt(++CurrentPos)) != '\0')
+                    while ((c = MyInput.Advance()) != '\0')
                         if (c == closing_quote)
-                            if (GetCharAt(CurrentPos + 1) == closing_quote)
-                                CurrentPos++;
+                            if (MyInput.GetCharAt(MyInput.CurrentPos + 1) == closing_quote)
+                                MyInput.Advance();
                             else
                                 return;
                     Exception exc2;
@@ -634,24 +743,11 @@ namespace ImmutableList
             }
         }
 
-        private string GetInputSubstring(long startPos, long endPos)
-        {
-            return MyString.Substring((int)startPos, (int)(endPos - startPos));
-        }
-
         private bool PointsAtSentinel()
         {
-            long startPos = CurrentPos;
-            for (int i = Sentinels.Count - 1; i >= 0; i--)
-            {
-                CurrentPos = startPos;
-                if (Test(Sentinels[i], consumeInput: false))
-                {
-                    CurrentPos = startPos;
+            foreach (string sentinel in Sentinels)
+                if (Test(sentinel, consumeInput: false))
                     return true;
-                }
-            }
-            CurrentPos = startPos;
             return false;
         }
 
@@ -659,7 +755,7 @@ namespace ImmutableList
         {
             get
             {
-                return GotoPrintChar() == '\0';
+                return MyInput.GotoPrintChar() == '\0';
             }
         }
 
@@ -677,12 +773,12 @@ namespace ImmutableList
 
         public virtual bool IsIdentChar(char c)
         {
-            return char.IsLetterOrDigit(c) || Options.IdentCharsEx != null && Options.IdentCharsEx.IndexOf(c) >= 0;
+            return c != '\0' && (char.IsLetterOrDigit(c) || Options.IdentCharsEx != null && Options.IdentCharsEx.IndexOf(c) >= 0);
         }
 
         protected bool TestOneOf(string[] sentinels)
         {
-            GotoPrintChar();
+            MyInput.GotoPrintChar();
             foreach (string sent in sentinels)
                 if (Test(sent, consumeInput: true))
                     return true;
@@ -694,50 +790,47 @@ namespace ImmutableList
             int endPos = pattern.LastIndexOf("->");
             if (endPos < 0)
                 endPos = pattern.Length;
-            GotoPrintChar();
-            long savePos = CurrentPos;
+            MyInput.GotoPrintChar();
+            long inputPos = MyInput.CurrentPos;
             int pattPos = 0;
             while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
             {
-                CurrentPos = savePos;
-                if (!TestSingleItem(pattern, ref pattPos))
-                {
-                    CurrentPos = savePos;
+                inputPos = MyInput.CurrentPos;
+                if (!TestSingleItem(pattern, endPos, ref inputPos, ref pattPos))
                     return false;
-                }
             }
-            if (!consumeInput)
-                CurrentPos = savePos;
-            else if (endPos + 2 < pattern.Length)
+            if (consumeInput)
             {
-                string varName = pattern.Substring(endPos + 2).Trim();
-                if (varName != "" && varName[0] != '_')
+                MyInput.AdvanceToPos(inputPos);
+                if (endPos + 2 < pattern.Length)
                 {
-                    string varValue = pattern.Substring(0, endPos).Trim();
-                    Add2Result(varName, varValue);
+                    string varName = pattern.Substring(endPos + 2).Trim();
+                    if (varName != "" && varName[0] != '_')
+                    {
+                        string varValue = pattern.Substring(0, endPos).Trim();
+                        Add2Result(varName, varValue);
+                    }
                 }
             }
             return true;
         }
 
-        protected bool TestSingleItem(string str, ref int pos)
+        protected bool TestSingleItem(string pattern, int patternEnd, ref long inputPos, ref int patternPos)
         {
-            pos = PatternGotoPrintChar(str, pos);
-            GotoPrintChar();
-            if (pos >= str.Length)
+            patternPos = PatternGotoPrintChar(pattern, patternPos);
+            if (patternPos >= patternEnd)
                 return true;
-            if (CurrentPos > 0 && IsIdentChar(str[pos]) && IsIdentChar(GetCharAt(CurrentPos - 1)))
+            if (inputPos > 0 && IsIdentChar(pattern[patternPos]) && MyInput.CharBeforeCurrentPosIsIdentChar())
                 return false;
-            int itemBegin = pos;
-            while (pos < str.Length && !char.IsWhiteSpace(str[pos]))
+            while (patternPos < patternEnd && !char.IsWhiteSpace(pattern[patternPos]))
             {
-                char c = GetCharAt(CurrentPos);
-                if (c != str[pos] && (Options.IsCaseSensitive || char.ToUpper(c) != char.ToUpper(str[pos])))
+                char c = MyInput.GetCharAt(inputPos);
+                if (c != pattern[patternPos] && (Options.IsCaseSensitive || char.ToUpper(c) != char.ToUpper(pattern[patternPos])))
                     return false;
-                CurrentPos++;
-                pos++;
+                inputPos++;
+                patternPos++;
             }
-            if (CurrentPos < MyString.Length && IsIdentChar(str[pos - 1]) && IsIdentChar(GetCharAt(CurrentPos)))
+            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(MyInput.GetCharAt(inputPos)))
                 return false;
             return true;
         }
@@ -747,69 +840,6 @@ namespace ImmutableList
             while (pos < pattern.Length && char.IsWhiteSpace(pattern[pos]))
                 pos++;
             return pos;
-        }
-
-        public char GotoPrintChar()
-        {
-            if (Options.Comments == null || Options.Comments.Length <= 0)
-                return GotoPrintChar_Basic();
-            char c;
-            while ((c = GotoPrintChar_Basic()) != '\0')
-            {
-                Tuple<string, string> comm = FindMatchingComment();
-                if (comm == null)
-                    return c;
-                if (comm.Item2 == null || comm.Item2.Length <= 0)
-                    while ((c = GetCharAt(CurrentPos)) != '\0' && c != '\n' && c != '\r')
-                        CurrentPos++;
-                else
-                {
-                    bool end_of_comment_found = false;
-                    for (; (c = GetCharAt(CurrentPos)) != '\0'; CurrentPos++)
-                        if (TestSubstring(comm.Item2))
-                        {
-                            end_of_comment_found = true;
-                            break;
-                        }
-                    if (!end_of_comment_found)
-                    {
-                        Exception exc;
-                        if (Options.OnMissingEndOfComment != null && (exc = Options.OnMissingEndOfComment(this)) != null)
-                            throw exc;
-                    }
-                }
-            }
-            return c;
-        }
-
-        private Tuple<string, string> FindMatchingComment()
-        {
-            foreach (var comm in Options.Comments)
-                if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
-                    return comm;
-            return null;
-        }
-
-        private bool TestSubstring(string str)
-        {
-            for (int i = 0; i < str.Length; i++)
-                if (GetCharAt(CurrentPos + i) != str[i])
-                    return false;
-            CurrentPos += str.Length;
-            return true;
-        }
-
-        public char GotoPrintChar_Basic()
-        {
-            char c;
-            while ((c = GetCharAt(CurrentPos)) != '\0' && char.IsWhiteSpace(c))
-                CurrentPos++;
-            return c;
-        }
-
-        public char GetCharAt(long pos)
-        {
-            return (pos < 0 || pos >= MyString.Length) ? '\0' : MyString[(int)pos];
         }
     }
 }
