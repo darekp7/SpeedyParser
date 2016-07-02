@@ -72,16 +72,18 @@ namespace ImmutableList
             public QuoteSensitivity SingleQuoteSensitivity = QuoteSensitivity.CSharpLike;
 
             /// <summary>
-            /// Exception to be thrown when opening bracket without corresponding closing bracket is found.
-            /// If this field is set to null, the parser ignores the error.
+            /// Action to execute when opening bracket without corresponding closing bracket is found. 
+            /// Optionally may return exception to be thrown.
+            /// If this field is set to null or returns null, the parser ignores the error.
             /// </summary>
-            public Func<SpeedyParser, Exception> MissingClosingBracketError = null;
+            public Func<SpeedyParser, Exception> OnMissingClosingBracket = null;
 
             /// <summary>
-            /// Exception to be thrown when closing quote is missing.
-            /// If this field is set to null, the parser ignores the error.
+            /// Action to execute when closing quote is missing. 
+            /// Optionally may return exception to be thrown.
+            /// If this field is set to null or returns null, the parser ignores the error.
             /// </summary>
-            public Func<SpeedyParser, Exception> MissingClosingQuoteError = null;
+            public Func<SpeedyParser, Exception> OnMissingClosingQuote = null;
 
             /// <summary>
             /// List of comments, if the second string in tuple is null or empty, the tuple denotes
@@ -94,9 +96,10 @@ namespace ImmutableList
 
             /// <summary>
             /// Exception to be thrown when end of comment is missing.
-            /// If this field is set to null, the parser ignores the error.
+            /// Optionally may return exception to be thrown.
+            /// If this field is set to null or returns null, the parser ignores the error.
             /// </summary>
-            public Func<SpeedyParser, Exception> MissingEndOfCommentError = null;
+            public Func<SpeedyParser, Exception> OnMissingEndOfComment = null;
         }
 
         private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
@@ -334,6 +337,13 @@ namespace ImmutableList
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
+                    case "Do":
+                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
+                        {
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0);
+                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
+                        }
+                        break;
                 }
             }
             return expr;
@@ -486,6 +496,20 @@ namespace ImmutableList
             return true;
         }
 
+        public bool Do(params bool[] body)
+        {
+            return true;
+        }
+
+        protected bool Do_implementation(Func<bool>[] body)
+        {
+            if (body != null)
+                foreach (var f in body)
+                    if (!f())
+                        return false;
+            return true;
+        }
+
         public bool Eat(string varName)
         {
             GotoPrintChar();
@@ -529,7 +553,6 @@ namespace ImmutableList
 
         private void GotoClosingBracket(char closing_bracket)
         {
-            CurrentPos++;
             int n_brackets = 1;
             char c;
             while ((c = GetCharAt(++CurrentPos)) != '\0')
@@ -544,7 +567,7 @@ namespace ImmutableList
                     case '(':
                     case '[':
                     case '{':
-                        if (Options.MissingClosingBracketError != null)
+                        if (Options.OnMissingClosingBracket != null)
                             GotoClosingBracket((c == '(') ? ')' : (c == '[') ? ']' : '}');
                         else
                             n_brackets++;
@@ -555,14 +578,14 @@ namespace ImmutableList
                         Exception exc1 = null;
                         if (c == closing_bracket)
                             return;
-                        else if (Options.MissingClosingBracketError != null && (exc1 = Options.MissingClosingBracketError(this)) != null)
+                        else if (Options.OnMissingClosingBracket != null && (exc1 = Options.OnMissingClosingBracket(this)) != null)
                             throw exc1;
                         else if (--n_brackets <= 0)
                             return;
                         break;
                 }
             Exception exc2 = null;
-            if (Options.MissingClosingBracketError != null && (exc2 =  Options.MissingClosingBracketError(this)) != null)
+            if (Options.OnMissingClosingBracket != null && (exc2 =  Options.OnMissingClosingBracket(this)) != null)
                 throw exc2; 
         }
 
@@ -578,7 +601,7 @@ namespace ImmutableList
                         if (c == '\0')
                         {
                             Exception exc;
-                            if (Options.MissingClosingQuoteError != null && (exc = Options.MissingClosingQuoteError(this)) != null)
+                            if (Options.OnMissingClosingQuote != null && (exc = Options.OnMissingClosingQuote(this)) != null)
                                 throw exc;
                             return;
                         }
@@ -589,7 +612,7 @@ namespace ImmutableList
                         {
                             case '\0':
                                 Exception exc;
-                                if (Options.MissingClosingQuoteError != null && (exc=Options.MissingClosingQuoteError(this)) != null)
+                                if (Options.OnMissingClosingQuote != null && (exc=Options.OnMissingClosingQuote(this)) != null)
                                     throw exc;
                                 return;
                             case '\\':
@@ -605,7 +628,7 @@ namespace ImmutableList
                             else
                                 return;
                     Exception exc2;
-                    if (Options.MissingClosingQuoteError != null && (exc2 = Options.MissingClosingQuoteError(this)) != null)
+                    if (Options.OnMissingClosingQuote != null && (exc2 = Options.OnMissingClosingQuote(this)) != null)
                         throw exc2;
                     return;
             }
@@ -728,7 +751,7 @@ namespace ImmutableList
 
         public char GotoPrintChar()
         {
-            if (Options.Comments == null)
+            if (Options.Comments == null || Options.Comments.Length <= 0)
                 return GotoPrintChar_Basic();
             char c;
             while ((c = GotoPrintChar_Basic()) != '\0')
@@ -736,21 +759,24 @@ namespace ImmutableList
                 Tuple<string, string> comm = FindMatchingComment();
                 if (comm == null)
                     return c;
-                CurrentPos += comm.Item1.Length;
                 if (comm.Item2 == null || comm.Item2.Length <= 0)
                     while ((c = GetCharAt(CurrentPos)) != '\0' && c != '\n' && c != '\r')
                         CurrentPos++;
                 else
                 {
-                    while ((c = GetCharAt(CurrentPos)) != '\0')
-                    {
+                    bool end_of_comment_found = false;
+                    for (; (c = GetCharAt(CurrentPos)) != '\0'; CurrentPos++)
                         if (TestSubstring(comm.Item2))
+                        {
+                            end_of_comment_found = true;
                             break;
-                        CurrentPos++;
+                        }
+                    if (!end_of_comment_found)
+                    {
+                        Exception exc;
+                        if (Options.OnMissingEndOfComment != null && (exc = Options.OnMissingEndOfComment(this)) != null)
+                            throw exc;
                     }
-                    Exception exc;
-                    if (Options.MissingEndOfCommentError != null && (exc = Options.MissingEndOfCommentError(this)) != null)
-                        throw exc;
                 }
             }
             return c;
