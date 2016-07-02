@@ -174,7 +174,15 @@ namespace ImmutableList
 
             public bool CharBeforeCurrentPosIsIdentChar()
             {
-                return (FCurrentPos <= 0) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos));
+                return (FCurrentPos <= 0) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
+            }
+
+            public char CurrentChar
+            {
+                get
+                {
+                    return GetCharAt(FCurrentPos);
+                }
             }
 
             public char GetCharAt(long pos)
@@ -212,6 +220,19 @@ namespace ImmutableList
             public string GetInputSubstring(long startPos, long endPos)
             {
                 return MyString.Substring((int)startPos, (int)(endPos - startPos));
+            }
+
+            public override string ToString()
+            {
+                StringBuilder res = new StringBuilder("input: ");
+                char c;
+                for (int i = 0; (c = GetCharAt(CurrentPos + i)) != '\0'; i++)
+                {
+                    res.Append(c);
+                    if (i >= 20)
+                        return res.Append((GetCharAt(CurrentPos + i + 1) != '\0')? "(...)" : "").ToString();
+                }
+                return res.ToString();
             }
         }
 
@@ -632,7 +653,7 @@ namespace ImmutableList
 
         private void GotoNextMatchingPos()
         {
-            switch (MyInput.GetCharAt(MyInput.CurrentPos))
+            switch (MyInput.CurrentChar)
             {
                 case '\'':
                     GotoClosingQuote('\'');
@@ -653,10 +674,10 @@ namespace ImmutableList
                         GotoClosingBracket('}');
                     break;
             }
-            if (!IsIdentChar(MyInput.GetCharAt(MyInput.CurrentPos)))
+            if (!IsIdentChar(MyInput.CurrentChar))
                 MyInput.Advance();
             else
-                while (IsIdentChar(MyInput.GetCharAt(MyInput.CurrentPos)))
+                while (IsIdentChar(MyInput.CurrentChar))
                     MyInput.Advance();
         }
 
@@ -794,11 +815,8 @@ namespace ImmutableList
             long inputPos = MyInput.CurrentPos;
             int pattPos = 0;
             while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
-            {
-                inputPos = MyInput.CurrentPos;
                 if (!TestSingleItem(pattern, endPos, ref inputPos, ref pattPos))
                     return false;
-            }
             if (consumeInput)
             {
                 MyInput.AdvanceToPos(inputPos);
@@ -817,9 +835,6 @@ namespace ImmutableList
 
         protected bool TestSingleItem(string pattern, int patternEnd, ref long inputPos, ref int patternPos)
         {
-            patternPos = PatternGotoPrintChar(pattern, patternPos);
-            if (patternPos >= patternEnd)
-                return true;
             if (inputPos > 0 && IsIdentChar(pattern[patternPos]) && MyInput.CharBeforeCurrentPosIsIdentChar())
                 return false;
             while (patternPos < patternEnd && !char.IsWhiteSpace(pattern[patternPos]))
