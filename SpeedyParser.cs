@@ -131,6 +131,14 @@ namespace ImmutableList
                 }
             }
 
+            public void BeginRecord()
+            {
+            }
+
+            public void EndRecord()
+            {
+            }
+
             public char GotoPrintChar()
             {
                 if (Options.Comments == null || Options.Comments.Length <= 0)
@@ -195,7 +203,7 @@ namespace ImmutableList
                 return GetCharAt(++FCurrentPos);
             }
 
-            public void AdvanceToPos(long pos)
+            public void GoToPos_Unsafe(long pos)
             {
                 FCurrentPos = pos;
             }
@@ -217,7 +225,7 @@ namespace ImmutableList
                 return null;
             }
 
-            public string GetInputSubstring(long startPos, long endPos)
+            public string GetInputSubstring_Unsafe(long startPos, long endPos)
             {
                 return MyString.Substring((int)startPos, (int)(endPos - startPos));
             }
@@ -643,11 +651,19 @@ namespace ImmutableList
         public bool Eat(string varName)
         {
             MyInput.GotoPrintChar();
-            long startPos = MyInput.CurrentPos;
-            while (MyInput.GotoPrintChar() != '\0' && !PointsAtSentinel())
-                GotoNextMatchingPos();
-            if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
-                Add2Result(varName, MyInput.GetInputSubstring(startPos, MyInput.CurrentPos).Trim());
+            MyInput.BeginRecord();
+            try
+            {
+                long startPos = MyInput.CurrentPos;
+                while (MyInput.GotoPrintChar() != '\0' && !PointsAtSentinel())
+                    GotoNextMatchingPos();
+                if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
+                    Add2Result(varName, MyInput.GetInputSubstring_Unsafe(startPos, MyInput.CurrentPos).Trim());
+            }
+            finally
+            {
+                MyInput.EndRecord();
+            }
             return true;
         }
 
@@ -812,40 +828,50 @@ namespace ImmutableList
             if (endPos < 0)
                 endPos = pattern.Length;
             MyInput.GotoPrintChar();
-            long inputPos = MyInput.CurrentPos;
-            int pattPos = 0;
-            while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
-                if (!TestSingleItem(pattern, endPos, ref inputPos, ref pattPos))
-                    return false;
-            if (consumeInput)
+            MyInput.BeginRecord();
+            try
             {
-                MyInput.AdvanceToPos(inputPos);
-                if (endPos + 2 < pattern.Length)
-                {
-                    string varName = pattern.Substring(endPos + 2).Trim();
-                    if (varName != "" && varName[0] != '_')
+                long savePos = MyInput.CurrentPos;
+                int pattPos = 0;
+                while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
+                    if (!TestSingleItem(pattern, endPos, ref pattPos))
                     {
-                        string varValue = pattern.Substring(0, endPos).Trim();
-                        Add2Result(varName, varValue);
+                        MyInput.GoToPos_Unsafe(savePos);
+                        return false;
                     }
+                if (!consumeInput)
+                    MyInput.GoToPos_Unsafe(savePos);
+            }
+            finally
+            {
+                MyInput.EndRecord();
+            }
+            if (consumeInput && endPos + 2 < pattern.Length)
+            {
+                string varName = pattern.Substring(endPos + 2).Trim();
+                if (varName != "" && varName[0] != '_')
+                {
+                    string varValue = pattern.Substring(0, endPos).Trim();
+                    Add2Result(varName, varValue);
                 }
             }
             return true;
         }
 
-        protected bool TestSingleItem(string pattern, int patternEnd, ref long inputPos, ref int patternPos)
+        protected bool TestSingleItem(string pattern, int patternEnd, ref int patternPos)
         {
-            if (inputPos > 0 && IsIdentChar(pattern[patternPos]) && MyInput.CharBeforeCurrentPosIsIdentChar())
+            MyInput.GotoPrintChar();
+            if (IsIdentChar(pattern[patternPos]) && MyInput.CharBeforeCurrentPosIsIdentChar())
                 return false;
             while (patternPos < patternEnd && !char.IsWhiteSpace(pattern[patternPos]))
             {
-                char c = MyInput.GetCharAt(inputPos);
+                char c = MyInput.CurrentChar;
                 if (c != pattern[patternPos] && (Options.IsCaseSensitive || char.ToUpper(c) != char.ToUpper(pattern[patternPos])))
                     return false;
-                inputPos++;
+                MyInput.Advance();
                 patternPos++;
             }
-            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(MyInput.GetCharAt(inputPos)))
+            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(MyInput.CurrentChar))
                 return false;
             return true;
         }
