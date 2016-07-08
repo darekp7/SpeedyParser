@@ -105,14 +105,26 @@ namespace ImmutableList
         protected struct ParserInput
         {
             public SpeedyParser Owner;
-            private string MyString;
+            private string CurrentLine;
+            private long CurrentLineStart;
             private long FCurrentPos;
+            private Func<string> ReadNextLineFun;
+            private int FRecordLevel = 0;
+            private List<BufferedLine> FBufferedLines = null; 
 
-            public ParserInput(SpeedyParser sp_owner, string str, int pos)
+            private struct BufferedLine
+            {
+                public string Line;
+                public long StartPos;
+            }
+
+            public ParserInput(SpeedyParser sp_owner, string str, Func<string> readNextLine, int pos)
             {
                 Owner = sp_owner;
-                MyString = str = str ?? "";
+                CurrentLine = str = str ?? "";
+                CurrentLineStart = 0;
                 FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
+                ReadNextLineFun = readNextLine;
             }
 
             public long CurrentPos
@@ -133,10 +145,13 @@ namespace ImmutableList
 
             public void BeginRecord()
             {
+                FRecordLevel++;
             }
 
             public void EndRecord()
             {
+                if (FRecordLevel > 0)
+                    FRecordLevel--;
             }
 
             public char GotoPrintChar()
@@ -182,7 +197,7 @@ namespace ImmutableList
 
             public bool CharBeforeCurrentPosIsIdentChar()
             {
-                return (FCurrentPos <= 0) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
+                return (FCurrentPos < CurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
             }
 
             public char CurrentChar
@@ -195,7 +210,64 @@ namespace ImmutableList
 
             public char GetCharAt(long pos)
             {
-                return (pos < 0 || pos >= MyString.Length) ? '\0' : MyString[(int)pos];
+                int inx = (int)(pos - CurrentLineStart);
+                if(inx >= 0 && inx < CurrentLine.Length)
+                    return CurrentLine[inx];
+                if (inx == CurrentLine.Length && NeedsEolnAtLineEnd())
+                    return '\n';
+                if (LoadLineForPos(pos))
+                {
+                    inx = (int)(pos - CurrentLineStart);
+                    if (inx >= 0 && inx < CurrentLine.Length)
+                        return CurrentLine[inx];
+                    if (inx == CurrentLine.Length && NeedsEolnAtLineEnd())
+                        return '\n';
+                }
+                return '\0';
+            }
+
+            private bool LoadLineForPos(long pos)
+            {
+                if (FRecordLevel > 0)
+                {
+                    if (FBufferedLines == null)
+                        FBufferedLines = new List<BufferedLine>();
+                    FBufferedLines.Add(new BufferedLine
+                    {
+                        Line = CurrentLine,
+                        StartPos = CurrentLineStart,
+                    });
+                }
+                if (pos >= FCurrentPos && ReadNextLineFun != null)
+                {
+                    CurrentLineStart += CurrentLine.Length + (NeedsEolnAtLineEnd() ? 1 : 0);
+                    string ln = ReadNextLineFun();
+                    if (ln != null)
+                    {
+                        if(FRecordLevel > 0)
+                            FBufferedLines.Add(new BufferedLine
+                            {
+                                Line = ln,
+                                StartPos = CurrentLineStart,
+                            });
+                        CurrentLine = ln;
+                        return true;
+                    }
+                    else
+                    {
+                        CurrentLine = "";
+                        ReadNextLineFun = null;
+                    }
+                }
+                return false;
+            }
+
+            private bool NeedsEolnAtLineEnd()
+            {
+                if (ReadNextLineFun == null)
+                    return false;
+                char c;
+                return CurrentLine.Length <= 0 || (c = CurrentLine[CurrentLine.Length - 1]) != '\n' && c != '\r';
             }
 
             public char Advance()
@@ -227,7 +299,7 @@ namespace ImmutableList
 
             public string GetInputSubstring_Unsafe(long startPos, long endPos)
             {
-                return MyString.Substring((int)startPos, (int)(endPos - startPos));
+                return CurrentLine.Substring((int)startPos, (int)(endPos - startPos));
             }
 
             public override string ToString()
@@ -280,7 +352,7 @@ namespace ImmutableList
 
         public bool TryMatch(string str)
         {
-            MyInput = new ParserInput(this, str, 0);
+            MyInput = new ParserInput(this, str, null, 0);
             return Body(this);
         }
 
