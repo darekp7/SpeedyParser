@@ -109,8 +109,8 @@ namespace ImmutableList
             private long CurrentLineStart;
             private long FCurrentPos;
             private Func<string> ReadNextLineFun;
-            private int FRecordLevel = 0;
-            private List<BufferedLine> FBufferedLines = null; 
+            private int FRecordLevel;
+            private List<BufferedLine> FBufferedLines; 
 
             private struct BufferedLine
             {
@@ -125,6 +125,8 @@ namespace ImmutableList
                 CurrentLineStart = 0;
                 FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
                 ReadNextLineFun = readNextLine;
+                FRecordLevel = 0;
+                FBufferedLines = null;
             }
 
             public long CurrentPos
@@ -210,6 +212,11 @@ namespace ImmutableList
 
             public char GetCharAt(long pos)
             {
+                if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordLevel <= 0 && pos >= FCurrentPos
+                    && FCurrentPos >= FBufferedLines[FBufferedLines.Count - 1].StartPos)
+                {
+                    FBufferedLines = null;
+                }
                 int inx = (int)(pos - CurrentLineStart);
                 if(inx >= 0 && inx < CurrentLine.Length)
                     return CurrentLine[inx];
@@ -232,11 +239,7 @@ namespace ImmutableList
                 {
                     if (FBufferedLines == null)
                         FBufferedLines = new List<BufferedLine>();
-                    FBufferedLines.Add(new BufferedLine
-                    {
-                        Line = CurrentLine,
-                        StartPos = CurrentLineStart,
-                    });
+                    Add2Buffer(FBufferedLines, CurrentLine, CurrentLineStart);
                 }
                 if (pos >= FCurrentPos && ReadNextLineFun != null)
                 {
@@ -245,11 +248,7 @@ namespace ImmutableList
                     if (ln != null)
                     {
                         if(FRecordLevel > 0)
-                            FBufferedLines.Add(new BufferedLine
-                            {
-                                Line = ln,
-                                StartPos = CurrentLineStart,
-                            });
+                            Add2Buffer(FBufferedLines, ln, CurrentLineStart);
                         CurrentLine = ln;
                         return true;
                     }
@@ -268,6 +267,27 @@ namespace ImmutableList
                     return false;
                 char c;
                 return CurrentLine.Length <= 0 || (c = CurrentLine[CurrentLine.Length - 1]) != '\n' && c != '\r';
+            }
+
+            private static void Add2Buffer(List<BufferedLine> buff, string line, long startPos)
+            {
+                int a = 0;
+                int b = buff.Count - 1;
+                while (a <= b)
+                {
+                    int mid = (a + b) / 2;
+                    if (startPos == buff[mid].StartPos)
+                        return;
+                    else if (startPos < buff[mid].StartPos)
+                        b = mid - 1;
+                    else
+                        a = mid + 1;
+                }
+                buff.Add(new BufferedLine
+                {
+                    Line = line,
+                    StartPos = startPos,
+                });
             }
 
             public char Advance()
