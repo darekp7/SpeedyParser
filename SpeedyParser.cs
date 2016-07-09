@@ -106,11 +106,11 @@ namespace ImmutableList
         {
             public SpeedyParser Owner;
             private string CurrentLine;
-            private long CurrentLineStart;
+            private long FCurrentLineStart;
             private long FCurrentPos;
-            private Func<string> ReadNextLineFun;
+            private Func<string> FReadNextLineFun;
             private int FRecordLevel;
-            private List<BufferedLine> FBufferedLines; 
+            private List<BufferedLine> FBufferedLines;
 
             private struct BufferedLine
             {
@@ -122,9 +122,9 @@ namespace ImmutableList
             {
                 Owner = sp_owner;
                 CurrentLine = str = str ?? "";
-                CurrentLineStart = 0;
+                FCurrentLineStart = 0;
                 FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
-                ReadNextLineFun = readNextLine;
+                FReadNextLineFun = readNextLine;
                 FRecordLevel = 0;
                 FBufferedLines = null;
             }
@@ -199,7 +199,7 @@ namespace ImmutableList
 
             public bool CharBeforeCurrentPosIsIdentChar()
             {
-                return (FCurrentPos < CurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
+                return (FCurrentPos <= FCurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
             }
 
             public char CurrentChar
@@ -217,77 +217,92 @@ namespace ImmutableList
                 {
                     FBufferedLines = null;
                 }
-                int inx = (int)(pos - CurrentLineStart);
-                if(inx >= 0 && inx < CurrentLine.Length)
+                int inx = (int)(pos - FCurrentLineStart);
+                if (inx >= 0 && inx < CurrentLine.Length)
                     return CurrentLine[inx];
-                if (inx == CurrentLine.Length && NeedsEolnAtLineEnd())
+                if (inx == CurrentLine.Length && NeedsEolnAtLineEnd(CurrentLine))
                     return '\n';
-                if (LoadLineForPos(pos))
+                if (FBufferedLines != null)
                 {
-                    inx = (int)(pos - CurrentLineStart);
-                    if (inx >= 0 && inx < CurrentLine.Length)
-                        return CurrentLine[inx];
-                    if (inx == CurrentLine.Length && NeedsEolnAtLineEnd())
-                        return '\n';
+                    char c = FindCharInBuffer(pos);
+                    if (c != '\0')
+                        return c;
+                }
+                if (pos < FCurrentLineStart)
+                    return '\0';
+                if (FReadNextLineFun != null)
+                    while (LoadNextLine())
+                    {
+                        inx = (int)(pos - FCurrentLineStart);
+                        if (inx >= 0 && inx < CurrentLine.Length)
+                            return CurrentLine[inx];
+                        if (inx == CurrentLine.Length && NeedsEolnAtLineEnd(CurrentLine))
+                            return '\n';
+                    }
+                return '\0';
+            }
+
+            private char FindCharInBuffer(long pos)
+            {
+                int a = 0;
+                int b = FBufferedLines.Count - 1;
+                while (a <= b)
+                {
+                    int mid = (a + b) / 2;
+                    if (pos >= FBufferedLines[mid].StartPos
+                        && pos < FBufferedLines[mid].Line.Length + (NeedsEolnAtLineEnd(FBufferedLines[mid].Line) ? 1 : 0))
+                    {
+                        CurrentLine = FBufferedLines[mid].Line;
+                        FCurrentLineStart = FBufferedLines[mid].StartPos;
+                        int inx = (int)(pos - FCurrentLineStart);
+                        return (inx < CurrentLine.Length) ? CurrentLine[inx] : '\n';
+                    }
+                    else if (pos < FBufferedLines[mid].StartPos)
+                        b = mid - 1;
+                    else
+                        a = mid + 1;
                 }
                 return '\0';
             }
 
-            private bool LoadLineForPos(long pos)
+            private bool LoadNextLine()
             {
-                if (FRecordLevel > 0)
+                if (FReadNextLineFun != null)
                 {
-                    if (FBufferedLines == null)
-                        FBufferedLines = new List<BufferedLine>();
-                    Add2Buffer(FBufferedLines, CurrentLine, CurrentLineStart);
-                }
-                if (pos >= FCurrentPos && ReadNextLineFun != null)
-                {
-                    CurrentLineStart += CurrentLine.Length + (NeedsEolnAtLineEnd() ? 1 : 0);
-                    string ln = ReadNextLineFun();
+                    if (FRecordLevel > 0 && FBufferedLines == null)
+                        (FBufferedLines = new List<BufferedLine>()).Add(new BufferedLine
+                        {
+                            Line = CurrentLine,
+                            StartPos = FCurrentLineStart,
+                        });
+                    FCurrentLineStart += CurrentLine.Length + (NeedsEolnAtLineEnd(CurrentLine) ? 1 : 0);
+                    string ln = FReadNextLineFun();
                     if (ln != null)
                     {
-                        if(FRecordLevel > 0)
-                            Add2Buffer(FBufferedLines, ln, CurrentLineStart);
+                        if (FRecordLevel > 0)
+                            FBufferedLines.Add(new BufferedLine
+                            {
+                                Line = ln,
+                                StartPos = FCurrentLineStart,
+                            });
                         CurrentLine = ln;
                         return true;
                     }
                     else
                     {
                         CurrentLine = "";
-                        ReadNextLineFun = null;
+                        FReadNextLineFun = null;
                     }
                 }
                 return false;
             }
 
-            private bool NeedsEolnAtLineEnd()
+            private bool NeedsEolnAtLineEnd(string strLine)
             {
-                if (ReadNextLineFun == null)
+                if (FReadNextLineFun == null)
                     return false;
                 char c;
-                return CurrentLine.Length <= 0 || (c = CurrentLine[CurrentLine.Length - 1]) != '\n' && c != '\r';
-            }
-
-            private static void Add2Buffer(List<BufferedLine> buff, string line, long startPos)
-            {
-                int a = 0;
-                int b = buff.Count - 1;
-                while (a <= b)
-                {
-                    int mid = (a + b) / 2;
-                    if (startPos == buff[mid].StartPos)
-                        return;
-                    else if (startPos < buff[mid].StartPos)
-                        b = mid - 1;
-                    else
-                        a = mid + 1;
-                }
-                buff.Add(new BufferedLine
-                {
-                    Line = line,
-                    StartPos = startPos,
-                });
+                return strLine.Length <= 0 || (c = strLine[strLine.Length - 1]) != '\n' && c != '\r';
             }
 
             public char Advance()
@@ -330,7 +345,7 @@ namespace ImmutableList
                 {
                     res.Append(c);
                     if (i >= 20)
-                        return res.Append((GetCharAt(CurrentPos + i + 1) != '\0')? "(...)" : "").ToString();
+                        return res.Append((GetCharAt(CurrentPos + i + 1) != '\0') ? "(...)" : "").ToString();
                 }
                 return res.ToString();
             }
@@ -823,8 +838,8 @@ namespace ImmutableList
                         break;
                 }
             Exception exc2 = null;
-            if (Options.OnMissingClosingBracket != null && (exc2 =  Options.OnMissingClosingBracket(this)) != null)
-                throw exc2; 
+            if (Options.OnMissingClosingBracket != null && (exc2 = Options.OnMissingClosingBracket(this)) != null)
+                throw exc2;
         }
 
         private void GotoClosingQuote(char closing_quote)
@@ -850,7 +865,7 @@ namespace ImmutableList
                         {
                             case '\0':
                                 Exception exc;
-                                if (Options.OnMissingClosingQuote != null && (exc=Options.OnMissingClosingQuote(this)) != null)
+                                if (Options.OnMissingClosingQuote != null && (exc = Options.OnMissingClosingQuote(this)) != null)
                                     throw exc;
                                 return;
                             case '\\':
