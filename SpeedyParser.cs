@@ -11,7 +11,7 @@ using System.Linq.Expressions;
  * Main features:
  */
 
-namespace ImmutableList
+namespace SpeedyTools
 {
     class SpeedyParser
     {
@@ -72,6 +72,15 @@ namespace ImmutableList
             public QuoteSensitivity SingleQuoteSensitivity = QuoteSensitivity.CSharpLike;
 
             /// <summary>
+            /// List of comments, if the second string in tuple is null or empty, the tuple denotes
+            /// single line comment (to the end of line).
+            /// 
+            /// Example (C# comments):
+            ///     new Tuple<string,string>[] { new Tuple<string,string>("//", ""), new Tuple<string,string>("/*", "*/") }
+            /// </summary>
+            public Tuple<string, string>[] Comments = null;
+
+            /// <summary>
             /// Action to execute when opening bracket without corresponding closing bracket is found. 
             /// Optionally may return exception to be thrown.
             /// If this field is set to null or returns null, the parser ignores the error.
@@ -86,15 +95,6 @@ namespace ImmutableList
             public Func<SpeedyParser, Exception> OnMissingClosingQuote = null;
 
             /// <summary>
-            /// List of comments, if the second string in tuple is null or empty, the tuple denotes
-            /// single line comment (to the end of line).
-            /// 
-            /// Example (C# comments):
-            ///     new Tuple<string,string>[] { new Tuple<string,string>("//", ""), new Tuple<string,string>("/*", "*/") }
-            /// </summary>
-            public Tuple<string, string>[] Comments = null;
-
-            /// <summary>
             /// Exception to be thrown when end of comment is missing.
             /// Optionally may return exception to be thrown.
             /// If this field is set to null or returns null, the parser ignores the error.
@@ -102,265 +102,15 @@ namespace ImmutableList
             public Func<SpeedyParser, Exception> OnMissingEndOfComment = null;
         }
 
-        protected struct ParserInput
-        {
-            public SpeedyParser Owner;
-            private string CurrentLine;
-            private long FCurrentLineStart;
-            private long FCurrentPos;
-            private Func<string> FReadNextLineFun;
-            private int FRecordLevel;
-            private List<BufferedLine> FBufferedLines;
-
-            private struct BufferedLine
-            {
-                public string Line;
-                public long StartPos;
-            }
-
-            public ParserInput(SpeedyParser sp_owner, string str, Func<string> readNextLine, int pos)
-            {
-                Owner = sp_owner;
-                CurrentLine = str = str ?? "";
-                FCurrentLineStart = 0;
-                FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
-                FReadNextLineFun = readNextLine;
-                FRecordLevel = 0;
-                FBufferedLines = null;
-            }
-
-            public long CurrentPos
-            {
-                get
-                {
-                    return FCurrentPos;
-                }
-            }
-
-            public ParserOptions Options
-            {
-                get
-                {
-                    return Owner.Options;
-                }
-            }
-
-            public void BeginRecord()
-            {
-                FRecordLevel++;
-            }
-
-            public void EndRecord()
-            {
-                if (FRecordLevel > 0)
-                    FRecordLevel--;
-            }
-
-            public char GotoPrintChar()
-            {
-                if (Options.Comments == null || Options.Comments.Length <= 0)
-                    return GotoPrintChar_Basic();
-                char c;
-                while ((c = GotoPrintChar_Basic()) != '\0')
-                {
-                    Tuple<string, string> comm = FindMatchingComment();
-                    if (comm == null)
-                        return c;
-                    if (comm.Item2 == null || comm.Item2.Length <= 0)
-                        while ((c = GetCharAt(FCurrentPos)) != '\0' && c != '\n' && c != '\r')
-                            FCurrentPos++;
-                    else
-                    {
-                        bool end_of_comment_found = false;
-                        for (; (c = GetCharAt(FCurrentPos)) != '\0'; FCurrentPos++)
-                            if (TestSubstring(comm.Item2))
-                            {
-                                end_of_comment_found = true;
-                                break;
-                            }
-                        if (!end_of_comment_found)
-                        {
-                            Exception exc;
-                            if (Options.OnMissingEndOfComment != null && (exc = Options.OnMissingEndOfComment(Owner)) != null)
-                                throw exc;
-                        }
-                    }
-                }
-                return c;
-            }
-
-            private char GotoPrintChar_Basic()
-            {
-                char c;
-                while ((c = GetCharAt(FCurrentPos)) != '\0' && char.IsWhiteSpace(c))
-                    FCurrentPos++;
-                return c;
-            }
-
-            public bool CharBeforeCurrentPosIsIdentChar()
-            {
-                return (FCurrentPos <= FCurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
-            }
-
-            public char CurrentChar
-            {
-                get
-                {
-                    return GetCharAt(FCurrentPos);
-                }
-            }
-
-            public char GetCharAt(long pos)
-            {
-                if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordLevel <= 0 && pos >= FCurrentPos
-                    && FCurrentPos >= FBufferedLines[FBufferedLines.Count - 1].StartPos)
-                {
-                    FBufferedLines = null;
-                }
-                int inx = (int)(pos - FCurrentLineStart);
-                if (inx >= 0 && inx < CurrentLine.Length)
-                    return CurrentLine[inx];
-                if (inx == CurrentLine.Length && NeedsEolnAtLineEnd(CurrentLine))
-                    return '\n';
-                if (FBufferedLines != null)
-                {
-                    char c = FindCharInBuffer(pos);
-                    if (c != '\0')
-                        return c;
-                }
-                if (pos < FCurrentLineStart)
-                    return '\0';
-                if (FReadNextLineFun != null)
-                    while (LoadNextLine())
-                    {
-                        inx = (int)(pos - FCurrentLineStart);
-                        if (inx >= 0 && inx < CurrentLine.Length)
-                            return CurrentLine[inx];
-                        if (inx == CurrentLine.Length && NeedsEolnAtLineEnd(CurrentLine))
-                            return '\n';
-                    }
-                return '\0';
-            }
-
-            private char FindCharInBuffer(long pos)
-            {
-                int a = 0;
-                int b = FBufferedLines.Count - 1;
-                while (a <= b)
-                {
-                    int mid = (a + b) / 2;
-                    if (pos >= FBufferedLines[mid].StartPos
-                        && pos < FBufferedLines[mid].Line.Length + (NeedsEolnAtLineEnd(FBufferedLines[mid].Line) ? 1 : 0))
-                    {
-                        CurrentLine = FBufferedLines[mid].Line;
-                        FCurrentLineStart = FBufferedLines[mid].StartPos;
-                        int inx = (int)(pos - FCurrentLineStart);
-                        return (inx < CurrentLine.Length) ? CurrentLine[inx] : '\n';
-                    }
-                    else if (pos < FBufferedLines[mid].StartPos)
-                        b = mid - 1;
-                    else
-                        a = mid + 1;
-                }
-                return '\0';
-            }
-
-            private bool LoadNextLine()
-            {
-                if (FReadNextLineFun != null)
-                {
-                    if (FRecordLevel > 0 && FBufferedLines == null)
-                        (FBufferedLines = new List<BufferedLine>()).Add(new BufferedLine
-                        {
-                            Line = CurrentLine,
-                            StartPos = FCurrentLineStart,
-                        });
-                    FCurrentLineStart += CurrentLine.Length + (NeedsEolnAtLineEnd(CurrentLine) ? 1 : 0);
-                    string ln = FReadNextLineFun();
-                    if (ln != null)
-                    {
-                        if (FRecordLevel > 0)
-                            FBufferedLines.Add(new BufferedLine
-                            {
-                                Line = ln,
-                                StartPos = FCurrentLineStart,
-                            });
-                        CurrentLine = ln;
-                        return true;
-                    }
-                    else
-                    {
-                        CurrentLine = "";
-                        FReadNextLineFun = null;
-                    }
-                }
-                return false;
-            }
-
-            private bool NeedsEolnAtLineEnd(string strLine)
-            {
-                if (FReadNextLineFun == null)
-                    return false;
-                char c;
-                return strLine.Length <= 0 || (c = strLine[strLine.Length - 1]) != '\n' && c != '\r';
-            }
-
-            public char Advance()
-            {
-                return GetCharAt(++FCurrentPos);
-            }
-
-            public void GoToPos_Unsafe(long pos)
-            {
-                FCurrentPos = pos;
-            }
-
-            private bool TestSubstring(string str)
-            {
-                for (int i = 0; i < str.Length; i++)
-                    if (GetCharAt(FCurrentPos + i) != str[i])
-                        return false;
-                FCurrentPos += str.Length;
-                return true;
-            }
-
-            private Tuple<string, string> FindMatchingComment()
-            {
-                foreach (var comm in Options.Comments)
-                    if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
-                        return comm;
-                return null;
-            }
-
-            public string GetInputSubstring_Unsafe(long startPos, long endPos)
-            {
-                return CurrentLine.Substring((int)startPos, (int)(endPos - startPos));
-            }
-
-            public override string ToString()
-            {
-                StringBuilder res = new StringBuilder("input: ");
-                char c;
-                for (int i = 0; (c = GetCharAt(CurrentPos + i)) != '\0'; i++)
-                {
-                    res.Append(c);
-                    if (i >= 20)
-                        return res.Append((GetCharAt(CurrentPos + i + 1) != '\0') ? "(...)" : "").ToString();
-                }
-                return res.ToString();
-            }
-        }
-
         private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
 
         public ParserOptions Options = DefaultParserOptions;
         protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
-
-        public Dictionary<string, List<string>> Result = null;
         protected List<string> Sentinels;
 
-        protected ParserInput MyInput;
+        public ParserInput Input;
+        public Dictionary<string, List<string>> Result = null;
 
         protected SpeedyParser()
         {
@@ -381,13 +131,38 @@ namespace ImmutableList
                 Options = this.Options,
                 Result = null,
                 Sentinels = Sentinels,
-                MyInput = this.MyInput
+                Input = this.Input
             };
         }
 
         public bool TryMatch(string str)
         {
-            MyInput = new ParserInput(this, str, null, 0);
+            Input = new ParserInput(this, str, null, 0);
+            return Body(this);
+        }
+
+        public bool TryMatch(string[] lines)
+        {
+            int i_ln = 0;
+            Func<string> readLine = null;
+            if(lines != null && lines.Length > 0)
+                readLine = () =>
+                    (lines != null && i_ln < lines.Length) ? lines[i_ln++] ?? "" : null;
+
+            Input = new ParserInput(this, "", readLine, 0);
+            return Body(this);
+        }
+
+        public bool TryMatch(IEnumerable<string> lines)
+        {
+            Func<string> readLine = null;
+            if (lines != null)
+            {
+                IEnumerator<string> enumerator = lines.GetEnumerator();
+                readLine = () =>
+                    (enumerator.MoveNext()) ? enumerator.Current ?? "" : null;
+            }
+            Input = new ParserInput(this, "", readLine, 0);
             return Body(this);
         }
 
@@ -401,15 +176,15 @@ namespace ImmutableList
             UnaryExpression une = expr as UnaryExpression;
             switch (expr.NodeType)
             {
-                case ExpressionType.Assign:         // a = b
+                case ExpressionType.Assign:             // a = b
                     return (be != null) ? Expression.Assign(be.Left, CompileExpression(be.Right)) : expr;
-                case ExpressionType.AddAssign:      // a += b
+                case ExpressionType.AddAssign:          // a += b
                     return (be != null) ? Expression.AddAssign(be.Left, CompileExpression(be.Right)) : expr;
-                case ExpressionType.AddAssignChecked: // a += b with overflow checking
+                case ExpressionType.AddAssignChecked:   // a += b with overflow checking
                     return (be != null) ? Expression.AddAssignChecked(be.Left, CompileExpression(be.Right)) : expr;
-                case ExpressionType.AndAssign:      // a &= b
+                case ExpressionType.AndAssign:          // a &= b
                     return (be != null) ? Expression.AndAssign(be.Left, CompileExpression(be.Right)) : expr;
-                case ExpressionType.DivideAssign:	// a /= b
+                case ExpressionType.DivideAssign:	    // a /= b
                     return (be != null) ? Expression.DivideAssign(be.Left, CompileExpression(be.Right)) : expr;
                 case ExpressionType.ExclusiveOrAssign:  // a ^= b
                     return (be != null) ? Expression.ExclusiveOrAssign(be.Left, CompileExpression(be.Right)) : expr;
@@ -432,20 +207,20 @@ namespace ImmutableList
                 case ExpressionType.SubtractAssignChecked:  // a -= b
                     return (be != null) ? Expression.SubtractAssignChecked(be.Left, CompileExpression(be.Right)) : expr;
 
-                case ExpressionType.Conditional:    // a > b ? a : b
+                case ExpressionType.Conditional:        // a > b ? a : b
                     ConditionalExpression ce_ex = expr as ConditionalExpression;
                     return (ce_ex != null) ? Expression.Condition(CompileExpression(ce_ex.Test), CompileExpression(ce_ex.IfTrue), CompileExpression(ce_ex.IfFalse)) : expr;
-                case ExpressionType.Coalesce:       // a ?? b
+                case ExpressionType.Coalesce:           // a ?? b
                     return (be != null) ? Expression.Coalesce(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.OrElse:	        // a || b
+                case ExpressionType.OrElse:	            // a || b
                     return (be != null) ? Expression.OrElse(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.AndAlso:        // a && b
+                case ExpressionType.AndAlso:            // a && b
                     return (be != null) ? Expression.AndAlso(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.Or:	            // a | b
+                case ExpressionType.Or:	                // a | b
                     return (be != null) ? Expression.Or(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.ExclusiveOr:	// a ^ b
+                case ExpressionType.ExclusiveOr:	    // a ^ b
                     return (be != null) ? Expression.ExclusiveOr(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.And:            // a & b
+                case ExpressionType.And:                // a & b
                     return (be != null) ? Expression.And(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
 
                 case ExpressionType.Equal:	            // a == b
@@ -463,20 +238,20 @@ namespace ImmutableList
                 case ExpressionType.TypeAs:	            // obj as SampleType
                 case ExpressionType.TypeIs:	            // obj is SampleType
                     return expr;
-                case ExpressionType.LeftShift:	  // a << b
+                case ExpressionType.LeftShift:	        // a << b
                     return (be != null) ? Expression.LeftShift(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.RightShift:	  // a >> b
+                case ExpressionType.RightShift:	        // a >> b
                     return (be != null) ? Expression.RightShift(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
 
-                case ExpressionType.Add:            // a + b
+                case ExpressionType.Add:                // a + b
                     return (be != null) ? Expression.Add(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.AddChecked:     // a + b with overflow checking
+                case ExpressionType.AddChecked:         // a + b with overflow checking
                     return (be != null) ? Expression.AddChecked(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
-                case ExpressionType.Decrement:	    // a - 1
+                case ExpressionType.Decrement:	        // a - 1
                     return (une != null) ? Expression.Decrement(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.Increment:	    // a + 1
+                case ExpressionType.Increment:	        // a + 1
                     return (une != null) ? Expression.Increment(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.Subtract:	    // a - b
+                case ExpressionType.Subtract:	        // a - b
                     return (be != null) ? Expression.Subtract(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
                 case ExpressionType.SubtractChecked:    // a - b
                     return (be != null) ? Expression.SubtractChecked(CompileExpression(be.Left), CompileExpression(be.Right)) : expr;
@@ -500,19 +275,19 @@ namespace ImmutableList
                     return (une != null) ? Expression.PostDecrementAssign(CompileExpression(une.Operand)) : expr;
                 case ExpressionType.PostIncrementAssign:	// a++
                     return (une != null) ? Expression.PostIncrementAssign(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.Negate:	        // -a
+                case ExpressionType.Negate:	            // -a
                     return (une != null) ? Expression.Negate(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.NegateChecked:	// -a
+                case ExpressionType.NegateChecked:	    // -a
                     return (une != null) ? Expression.NegateChecked(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.Not:	        // ~a
+                case ExpressionType.Not:	            // ~a
                     return (une != null) ? Expression.Not(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.OnesComplement:	// ~a in C#
+                case ExpressionType.OnesComplement:	    // ~a in C#
                     return (une != null) ? Expression.OnesComplement(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.UnaryPlus:	    // +a
+                case ExpressionType.UnaryPlus:	        // +a
                     return (une != null) ? Expression.UnaryPlus(CompileExpression(une.Operand)) : expr;
-                case ExpressionType.ArrayIndex:     // a[b]
+                case ExpressionType.ArrayIndex:         // a[b]
                     return (be != null) ? Expression.ArrayIndex(be.Left, CompileExpression(be.Right)) : expr;
-                case ExpressionType.ArrayLength:    // a.Length
+                case ExpressionType.ArrayLength:        // a.Length
                     return (une != null) ? Expression.ArrayLength(CompileExpression(une.Operand)) : expr;
 
                 case ExpressionType.Index:	        // An index operation or an operation that accesses a property that takes arguments.
@@ -660,7 +435,7 @@ namespace ImmutableList
 
         protected static object Evaluate(Expression expr, string callingFunction, int paramInx)
         {
-            //A little optimization for constant expressions
+            // A little optimization for constant expressions
             if (expr.NodeType == ExpressionType.Constant)
                 return ((ConstantExpression)expr).Value;
             try
@@ -757,26 +532,26 @@ namespace ImmutableList
 
         public bool Eat(string varName)
         {
-            MyInput.GotoPrintChar();
-            MyInput.BeginRecord();
+            Input.GotoPrintChar();
+            Input.BeginRecord();
             try
             {
-                long startPos = MyInput.CurrentPos;
-                while (MyInput.GotoPrintChar() != '\0' && !PointsAtSentinel())
+                long startPos = Input.CurrentPos;
+                while (Input.GotoPrintChar() != '\0' && !PointsAtSentinel())
                     GotoNextMatchingPos();
                 if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
-                    Add2Result(varName, MyInput.GetInputSubstring_Unsafe(startPos, MyInput.CurrentPos).Trim());
+                    Add2Result(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             finally
             {
-                MyInput.EndRecord();
+                Input.EndRecord();
             }
             return true;
         }
 
         private void GotoNextMatchingPos()
         {
-            switch (MyInput.CurrentChar)
+            switch (Input.CurrentChar)
             {
                 case '\'':
                     GotoClosingQuote('\'');
@@ -797,18 +572,18 @@ namespace ImmutableList
                         GotoClosingBracket('}');
                     break;
             }
-            if (!IsIdentChar(MyInput.CurrentChar))
-                MyInput.Advance();
+            if (!IsIdentChar(Input.CurrentChar))
+                Input.Advance();
             else
-                while (IsIdentChar(MyInput.CurrentChar))
-                    MyInput.Advance();
+                while (IsIdentChar(Input.CurrentChar))
+                    Input.Advance();
         }
 
         private void GotoClosingBracket(char closing_bracket)
         {
             int n_brackets = 1;
             char c;
-            while ((c = MyInput.Advance()) != '\0')
+            while ((c = Input.Advance()) != '\0')
                 switch (c)
                 {
                     case '\'':
@@ -850,7 +625,7 @@ namespace ImmutableList
                 case QuoteSensitivity.Insensitive:
                     return;
                 case QuoteSensitivity.Sensitive:
-                    while ((c = MyInput.Advance()) != closing_quote)
+                    while ((c = Input.Advance()) != closing_quote)
                         if (c == '\0')
                         {
                             Exception exc;
@@ -860,7 +635,7 @@ namespace ImmutableList
                         }
                     return;
                 case QuoteSensitivity.CSharpLike:
-                    while ((c = MyInput.Advance()) != closing_quote)
+                    while ((c = Input.Advance()) != closing_quote)
                         switch (c)
                         {
                             case '\0':
@@ -869,15 +644,15 @@ namespace ImmutableList
                                     throw exc;
                                 return;
                             case '\\':
-                                MyInput.Advance();
+                                Input.Advance();
                                 break;
                         }
                     return;
                 case QuoteSensitivity.SqlLike:
-                    while ((c = MyInput.Advance()) != '\0')
+                    while ((c = Input.Advance()) != '\0')
                         if (c == closing_quote)
-                            if (MyInput.GetCharAt(MyInput.CurrentPos + 1) == closing_quote)
-                                MyInput.Advance();
+                            if (Input.GetCharAt(Input.CurrentPos + 1) == closing_quote)
+                                Input.Advance();
                             else
                                 return;
                     Exception exc2;
@@ -899,7 +674,7 @@ namespace ImmutableList
         {
             get
             {
-                return MyInput.GotoPrintChar() == '\0';
+                return Input.GotoPrintChar() == '\0';
             }
         }
 
@@ -922,7 +697,7 @@ namespace ImmutableList
 
         protected bool TestOneOf(string[] sentinels)
         {
-            MyInput.GotoPrintChar();
+            Input.GotoPrintChar();
             foreach (string sent in sentinels)
                 if (Test(sent, consumeInput: true))
                     return true;
@@ -934,24 +709,24 @@ namespace ImmutableList
             int endPos = pattern.LastIndexOf("->");
             if (endPos < 0)
                 endPos = pattern.Length;
-            MyInput.GotoPrintChar();
-            MyInput.BeginRecord();
+            Input.GotoPrintChar();
+            Input.BeginRecord();
             try
             {
-                long savePos = MyInput.CurrentPos;
+                long savePos = Input.CurrentPos;
                 int pattPos = 0;
                 while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
                     if (!TestSingleItem(pattern, endPos, ref pattPos))
                     {
-                        MyInput.GoToPos_Unsafe(savePos);
+                        Input.GoToPos_Unsafe(savePos);
                         return false;
                     }
                 if (!consumeInput)
-                    MyInput.GoToPos_Unsafe(savePos);
+                    Input.GoToPos_Unsafe(savePos);
             }
             finally
             {
-                MyInput.EndRecord();
+                Input.EndRecord();
             }
             if (consumeInput && endPos + 2 < pattern.Length)
             {
@@ -967,18 +742,18 @@ namespace ImmutableList
 
         protected bool TestSingleItem(string pattern, int patternEnd, ref int patternPos)
         {
-            MyInput.GotoPrintChar();
-            if (IsIdentChar(pattern[patternPos]) && MyInput.CharBeforeCurrentPosIsIdentChar())
+            Input.GotoPrintChar();
+            if (IsIdentChar(pattern[patternPos]) && Input.CharBeforeCurrentPosIsIdentChar())
                 return false;
             while (patternPos < patternEnd && !char.IsWhiteSpace(pattern[patternPos]))
             {
-                char c = MyInput.CurrentChar;
+                char c = Input.CurrentChar;
                 if (c != pattern[patternPos] && (Options.IsCaseSensitive || char.ToUpper(c) != char.ToUpper(pattern[patternPos])))
                     return false;
-                MyInput.Advance();
+                Input.Advance();
                 patternPos++;
             }
-            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(MyInput.CurrentChar))
+            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(Input.CurrentChar))
                 return false;
             return true;
         }
@@ -989,5 +764,285 @@ namespace ImmutableList
                 pos++;
             return pos;
         }
+
+        public struct ParserInput
+        {
+            public SpeedyParser Owner;
+            private string FCurrentLine;
+            private long FCurrentLineStart;
+            private long FCurrentPos;
+            private Func<string> FReadNextLineFun;
+            private int FRecordingLevel;
+            private List<BufferedLine> FBufferedLines;
+            private long FLastGetCharPos;
+            private char FLastGetChar;
+
+            private struct BufferedLine
+            {
+                public string Line;
+                public long StartPos;
+            }
+
+            public ParserInput(SpeedyParser sp_owner, string str, Func<string> readNextLine, int pos)
+            {
+                Owner = sp_owner;
+                FCurrentLine = str = str ?? "";
+                FCurrentLineStart = 0;
+                FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
+                FReadNextLineFun = readNextLine;
+                FRecordingLevel = 0;
+                FBufferedLines = null;
+                FLastGetCharPos = -1;
+                FLastGetChar = '\0';
+                if (FReadNextLineFun != null)
+                    LoadNextLine(fromConstructor: true);
+            }
+
+            public long CurrentPos
+            {
+                get
+                {
+                    return FCurrentPos;
+                }
+            }
+
+            public ParserOptions Options
+            {
+                get
+                {
+                    return Owner.Options;
+                }
+            }
+
+            public void BeginRecord()
+            {
+                FRecordingLevel++;
+            }
+
+            public void EndRecord()
+            {
+                if (FRecordingLevel > 0)
+                    FRecordingLevel--;
+            }
+
+            public char GotoPrintChar()
+            {
+                if (Options.Comments == null || Options.Comments.Length <= 0)
+                    return GotoPrintChar_Basic();
+                char c;
+                while ((c = GotoPrintChar_Basic()) != '\0')
+                {
+                    Tuple<string, string> comm = FindMatchingComment();
+                    if (comm == null)
+                        return c;
+                    if (comm.Item2 == null || comm.Item2.Length <= 0)
+                        while ((c = GetCharAt(FCurrentPos)) != '\0' && c != '\n' && c != '\r')
+                            FCurrentPos++;
+                    else
+                    {
+                        bool end_of_comment_found = false;
+                        for (; (c = GetCharAt(FCurrentPos)) != '\0'; FCurrentPos++)
+                            if (TestSubstring(comm.Item2))
+                            {
+                                end_of_comment_found = true;
+                                break;
+                            }
+                        if (!end_of_comment_found)
+                        {
+                            Exception exc;
+                            if (Options.OnMissingEndOfComment != null && (exc = Options.OnMissingEndOfComment(Owner)) != null)
+                                throw exc;
+                        }
+                    }
+                }
+                return c;
+            }
+
+            private char GotoPrintChar_Basic()
+            {
+                char c;
+                while ((c = GetCharAt(FCurrentPos)) != '\0' && char.IsWhiteSpace(c))
+                    FCurrentPos++;
+                return c;
+            }
+
+            public bool CharBeforeCurrentPosIsIdentChar()
+            {
+                return (FCurrentPos <= FCurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
+            }
+
+            public char CurrentChar
+            {
+                get
+                {
+                    return GetCharAt(FCurrentPos);
+                }
+            }
+
+            public char GetCharAt(long pos)
+            {
+                if (pos == FLastGetCharPos)
+                    return FLastGetChar;
+                if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordingLevel <= 0 && pos >= FCurrentPos
+                    && FCurrentPos >= FBufferedLines[FBufferedLines.Count - 1].StartPos)
+                {
+                    FBufferedLines = null;
+                }
+                int inx = (int)(pos - FCurrentLineStart);
+                if (inx >= 0 && inx < FCurrentLine.Length)
+                {
+                    FLastGetCharPos = pos;
+                    return FLastGetChar = FCurrentLine[inx];
+                }
+                if (inx == FCurrentLine.Length && NeedsEolnAtLineEnd(FCurrentLine))
+                {
+                    FLastGetCharPos = pos;
+                    return FLastGetChar = '\n';
+                }
+                if (FBufferedLines != null)
+                {
+                    char c = FindCharInBuffer(pos);
+                    if (c != '\0')
+                    {
+                        FLastGetCharPos = pos;
+                        return FLastGetChar = c;
+                    }
+                }
+                if (pos < FCurrentLineStart)
+                    return '\0';
+                while (FReadNextLineFun != null && LoadNextLine(fromConstructor: false))
+                {
+                    inx = (int)(pos - FCurrentLineStart);
+                    if (inx >= 0 && inx < FCurrentLine.Length)
+                    {
+                        FLastGetCharPos = pos;
+                        return FLastGetChar = FCurrentLine[inx];
+                    }
+                    if (inx == FCurrentLine.Length && NeedsEolnAtLineEnd(FCurrentLine))
+                    {
+                        FLastGetCharPos = pos;
+                        return FLastGetChar = '\n';
+                    }
+                }
+                FLastGetCharPos = pos;
+                return FLastGetChar = '\0';
+            }
+
+            private char FindCharInBuffer(long pos)
+            {
+                int a = 0;
+                int b = FBufferedLines.Count - 1;
+                while (a <= b)
+                {
+                    int mid = (a + b) / 2;
+                    if (pos >= FBufferedLines[mid].StartPos
+                        && pos < FBufferedLines[mid].Line.Length + (NeedsEolnAtLineEnd(FBufferedLines[mid].Line) ? 1 : 0))
+                    {
+                        FCurrentLine = FBufferedLines[mid].Line;
+                        FCurrentLineStart = FBufferedLines[mid].StartPos;
+                        int inx = (int)(pos - FCurrentLineStart);
+                        return (inx < FCurrentLine.Length) ? FCurrentLine[inx] : '\n';
+                    }
+                    else if (pos < FBufferedLines[mid].StartPos)
+                        b = mid - 1;
+                    else
+                        a = mid + 1;
+                }
+                return '\0';
+            }
+
+            private bool LoadNextLine(bool fromConstructor)
+            {
+                long nextStart = FCurrentLineStart + FCurrentLine.Length + (NeedsEolnAtLineEnd(FCurrentLine) && !fromConstructor ? 1 : 0);
+                string ln = FReadNextLineFun();
+                if (ln != null)
+                {
+                    if (FRecordingLevel > 0)
+                    {
+                        if (FBufferedLines == null)
+                            (FBufferedLines = new List<BufferedLine>()).Add(new BufferedLine
+                            {
+                                Line = FCurrentLine,
+                                StartPos = FCurrentLineStart,
+                            });
+                        FBufferedLines.Add(new BufferedLine
+                        {
+                            Line = ln,
+                            StartPos = nextStart,
+                        });
+                    }
+                    FCurrentLine = ln;
+                    FCurrentLineStart = nextStart;
+                    return true;
+                }
+                else
+                {
+                    FReadNextLineFun = null;
+                    return false;
+                }
+            }
+
+            private bool NeedsEolnAtLineEnd(string strLine)
+            {
+                if (FReadNextLineFun == null)
+                    return false;
+                char c;
+                return strLine.Length <= 0 || (c = strLine[strLine.Length - 1]) != '\n' && c != '\r';
+            }
+
+            public char Advance()
+            {
+                return GetCharAt(++FCurrentPos);
+            }
+
+            public void GoToPos_Unsafe(long pos)
+            {
+                FCurrentPos = pos;
+            }
+
+            private bool TestSubstring(string str)
+            {
+                for (int i = 0; i < str.Length; i++)
+                    if (GetCharAt(FCurrentPos + i) != str[i])
+                        return false;
+                FCurrentPos += str.Length;
+                return true;
+            }
+
+            private Tuple<string, string> FindMatchingComment()
+            {
+                foreach (var comm in Options.Comments)
+                    if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
+                        return comm;
+                return null;
+            }
+
+            public string GetInputSubstring_Unsafe(long startPos, long endPos)
+            {
+                StringBuilder res = new StringBuilder();
+                for (long i = startPos; i < endPos; i++)
+                {
+                    char c = GetCharAt(i);
+                    if (c == '\0')
+                        break;
+                    res.Append(c);
+                }
+                return res.ToString();
+            }
+
+            public override string ToString() // for debugging
+            {
+                StringBuilder res = new StringBuilder("input: ");
+                char c;
+                for (int i = Math.Max((int)(FCurrentPos - FCurrentLineStart), 0); i < FCurrentLine.Length; i++)
+                {
+                    res.Append(FCurrentLine[i]);
+                    if (i >= 20)
+                        return res.Append((i + 1 < FCurrentLine.Length) ? "(...)" : "").ToString();
+                }
+                return res.ToString();
+            }
+        }
+
     }
 }
