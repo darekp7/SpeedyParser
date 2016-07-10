@@ -818,6 +818,7 @@ namespace SpeedyTools
 
             public void BeginRecord()
             {
+                ClearBufferedLinesIfPossible(FCurrentPos);
                 FRecordingLevel++;
             }
 
@@ -882,30 +883,33 @@ namespace SpeedyTools
             {
                 if (pos == FLastGetCharPos)
                     return FLastGetChar;
-                if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordingLevel <= 0 && pos >= FCurrentPos
-                    && FCurrentPos >= FBufferedLines[FBufferedLines.Count - 1].StartPos)
+                return FLastGetChar = GetCharAt_Base(FLastGetCharPos = pos);
+            }
+
+            private void ClearBufferedLinesIfPossible(long pos)
+            {
+                if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordingLevel <= 0
+                    && pos >= FCurrentPos && FCurrentPos >= FCurrentLineStart
+                    && FCurrentLineStart > FBufferedLines[FBufferedLines.Count - 1].StartPos + FBufferedLines[FBufferedLines.Count - 1].Line.Length)
                 {
-                    FBufferedLines = null;
+                    FBufferedLines.Clear();
                 }
+            }
+
+            private char GetCharAt_Base(long pos)
+            {
+                if (FBufferedLines != null && FBufferedLines.Count > 0)
+                    ClearBufferedLinesIfPossible(pos);
                 int inx = (int)(pos - FCurrentLineStart);
                 if (inx >= 0 && inx < FCurrentLine.Length)
-                {
-                    FLastGetCharPos = pos;
-                    return FLastGetChar = FCurrentLine[inx];
-                }
+                    return FCurrentLine[inx];
                 if (inx == FCurrentLine.Length && NeedsEolnAtLineEnd(FCurrentLine))
-                {
-                    FLastGetCharPos = pos;
-                    return FLastGetChar = '\n';
-                }
-                if (FBufferedLines != null)
+                    return '\n';
+                if (FBufferedLines != null && FBufferedLines.Count > 0)
                 {
                     char c = FindCharInBuffer(pos);
                     if (c != '\0')
-                    {
-                        FLastGetCharPos = pos;
-                        return FLastGetChar = c;
-                    }
+                        return c;
                 }
                 if (pos < FCurrentLineStart)
                     return '\0';
@@ -913,18 +917,11 @@ namespace SpeedyTools
                 {
                     inx = (int)(pos - FCurrentLineStart);
                     if (inx >= 0 && inx < FCurrentLine.Length)
-                    {
-                        FLastGetCharPos = pos;
-                        return FLastGetChar = FCurrentLine[inx];
-                    }
+                        return FCurrentLine[inx];
                     if (inx == FCurrentLine.Length && NeedsEolnAtLineEnd(FCurrentLine))
-                    {
-                        FLastGetCharPos = pos;
-                        return FLastGetChar = '\n';
-                    }
+                        return '\n';
                 }
-                FLastGetCharPos = pos;
-                return FLastGetChar = '\0';
+                return '\0';
             }
 
             private char FindCharInBuffer(long pos)
@@ -1032,7 +1029,6 @@ namespace SpeedyTools
             public override string ToString() // for debugging
             {
                 StringBuilder res = new StringBuilder("input: ");
-                char c;
                 for (int i = Math.Max((int)(FCurrentPos - FCurrentLineStart), 0); i < FCurrentLine.Length; i++)
                 {
                     res.Append(FCurrentLine[i]);
