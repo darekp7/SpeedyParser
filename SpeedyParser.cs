@@ -551,7 +551,7 @@ namespace SpeedyTools
 
         private void GotoNextMatchingPos()
         {
-            switch (Input.CurrentChar)
+            switch (Input.CurrentChar())
             {
                 case '\'':
                     GotoClosingQuote('\'');
@@ -572,10 +572,10 @@ namespace SpeedyTools
                         GotoClosingBracket('}');
                     break;
             }
-            if (!IsIdentChar(Input.CurrentChar))
+            if (!IsIdentChar(Input.CurrentChar()))
                 Input.Advance();
             else
-                while (IsIdentChar(Input.CurrentChar))
+                while (IsIdentChar(Input.CurrentChar()))
                     Input.Advance();
         }
 
@@ -747,13 +747,13 @@ namespace SpeedyTools
                 return false;
             while (patternPos < patternEnd && !char.IsWhiteSpace(pattern[patternPos]))
             {
-                char c = Input.CurrentChar;
+                char c = Input.CurrentChar();
                 if (c != pattern[patternPos] && (Options.IsCaseSensitive || char.ToUpper(c) != char.ToUpper(pattern[patternPos])))
                     return false;
                 Input.Advance();
                 patternPos++;
             }
-            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(Input.CurrentChar))
+            if (IsIdentChar(pattern[patternPos - 1]) && IsIdentChar(Input.CurrentChar()))
                 return false;
             return true;
         }
@@ -772,6 +772,7 @@ namespace SpeedyTools
             private long FCurrentLineStart;
             private long FCurrentPos;
             private Func<string> FReadNextLineFun;
+            private bool FIsMultiline;
             private int FRecordingLevel;
             private List<BufferedLine> FBufferedLines;
             private long FLastGetCharPos;
@@ -790,6 +791,7 @@ namespace SpeedyTools
                 FCurrentLineStart = 0;
                 FCurrentPos = Math.Max(0, Math.Min(pos, str.Length));
                 FReadNextLineFun = readNextLine;
+                FIsMultiline = readNextLine != null;
                 FRecordingLevel = 0;
                 FBufferedLines = null;
                 FLastGetCharPos = -1;
@@ -871,12 +873,9 @@ namespace SpeedyTools
                 return (FCurrentPos <= FCurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
             }
 
-            public char CurrentChar
+            public char CurrentChar() // NOTE: this should NOT BE a property because of unwanted side-effect during debugging
             {
-                get
-                {
-                    return GetCharAt(FCurrentPos);
-                }
+                return GetCharAt(FCurrentPos);
             }
 
             public char GetCharAt(long pos)
@@ -935,13 +934,13 @@ namespace SpeedyTools
                 while (a <= b)
                 {
                     int mid = (a + b) / 2;
-                    if (pos >= FBufferedLines[mid].StartPos
-                        && pos < FBufferedLines[mid].Line.Length + (NeedsEolnAtLineEnd(FBufferedLines[mid].Line) ? 1 : 0))
+                    int inx = (int)(pos - FBufferedLines[mid].StartPos);
+                    string line = FBufferedLines[mid].Line;
+                    if (inx >= 0 && inx < line.Length + (NeedsEolnAtLineEnd(line) ? 1 : 0))
                     {
-                        FCurrentLine = FBufferedLines[mid].Line;
+                        FCurrentLine = line;
                         FCurrentLineStart = FBufferedLines[mid].StartPos;
-                        int inx = (int)(pos - FCurrentLineStart);
-                        return (inx < FCurrentLine.Length) ? FCurrentLine[inx] : '\n';
+                        return (inx < line.Length) ? line[inx] : '\n';
                     }
                     else if (pos < FBufferedLines[mid].StartPos)
                         b = mid - 1;
@@ -984,7 +983,7 @@ namespace SpeedyTools
 
             private bool NeedsEolnAtLineEnd(string strLine)
             {
-                if (FReadNextLineFun == null)
+                if (!FIsMultiline)
                     return false;
                 char c;
                 return strLine.Length <= 0 || (c = strLine[strLine.Length - 1]) != '\n' && c != '\r';
