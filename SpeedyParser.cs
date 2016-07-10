@@ -818,7 +818,17 @@ namespace SpeedyTools
 
             public void BeginRecord()
             {
-                ClearBufferedLinesIfPossible(FCurrentPos);
+                if (FRecordingLevel <= 0 && FBufferedLines != null && FBufferedLines.Count > 0)
+                {
+                    int mid = FindPosInBuffer(FCurrentPos);
+                    if (mid > 0)
+                    {
+                        int n = FBufferedLines.Count - mid;
+                        for (int i = 0; i < n; i++)
+                            FBufferedLines[i] = FBufferedLines[i + mid];
+                        FBufferedLines.RemoveRange(n, mid);
+                    }
+                }
                 FRecordingLevel++;
             }
 
@@ -883,10 +893,10 @@ namespace SpeedyTools
             {
                 if (pos == FLastGetCharPos)
                     return FLastGetChar;
-                return FLastGetChar = GetCharAt_Base(FLastGetCharPos = pos);
+                return FLastGetChar = GetCharAt_Basic(FLastGetCharPos = pos);
             }
 
-            private void ClearBufferedLinesIfPossible(long pos)
+            private char GetCharAt_Basic(long pos)
             {
                 if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordingLevel <= 0
                     && pos >= FCurrentPos && FCurrentPos >= FCurrentLineStart
@@ -894,12 +904,6 @@ namespace SpeedyTools
                 {
                     FBufferedLines.Clear();
                 }
-            }
-
-            private char GetCharAt_Base(long pos)
-            {
-                if (FBufferedLines != null && FBufferedLines.Count > 0)
-                    ClearBufferedLinesIfPossible(pos);
                 int inx = (int)(pos - FCurrentLineStart);
                 if (inx >= 0 && inx < FCurrentLine.Length)
                     return FCurrentLine[inx];
@@ -926,6 +930,17 @@ namespace SpeedyTools
 
             private char FindCharInBuffer(long pos)
             {
+                int mid = FindPosInBuffer(pos);
+                if (mid < 0)
+                    return '\0';
+                FCurrentLine = FBufferedLines[mid].Line;
+                FCurrentLineStart = FBufferedLines[mid].StartPos;
+                int inx = (int)(pos - FCurrentLineStart);
+                return (inx < FCurrentLine.Length) ? FCurrentLine[inx] : '\n';
+            }
+
+            private int FindPosInBuffer(long pos)
+            {
                 int a = 0;
                 int b = FBufferedLines.Count - 1;
                 while (a <= b)
@@ -934,17 +949,13 @@ namespace SpeedyTools
                     int inx = (int)(pos - FBufferedLines[mid].StartPos);
                     string line = FBufferedLines[mid].Line;
                     if (inx >= 0 && inx < line.Length + (NeedsEolnAtLineEnd(line) ? 1 : 0))
-                    {
-                        FCurrentLine = line;
-                        FCurrentLineStart = FBufferedLines[mid].StartPos;
-                        return (inx < line.Length) ? line[inx] : '\n';
-                    }
+                        return mid;
                     else if (pos < FBufferedLines[mid].StartPos)
                         b = mid - 1;
                     else
                         a = mid + 1;
                 }
-                return '\0';
+                return -1;
             }
 
             private bool LoadNextLine(bool fromConstructor)
