@@ -102,7 +102,7 @@ namespace SpeedyTools
             /// List of comments, if the second string in tuple is null or empty, the tuple denotes
             /// single line comment (to the end of line).
             /// 
-            /// Example (C# comments):
+            /// Example (C#-like comments):
             ///     new Tuple<string,string>[] { new Tuple<string,string>("//", ""), new Tuple<string,string>("/*", "*/") }
             /// </summary>
             public Tuple<string, string>[] Comments = null;
@@ -994,7 +994,9 @@ namespace SpeedyTools
                     if (FRecordingLevel > 0)
                     {
                         if (FBufferedLines == null)
-                            (FBufferedLines = new List<BufferedLine>()).Add(new BufferedLine
+                            FBufferedLines = new List<BufferedLine>();
+                        if (FBufferedLines.Count <= 0)
+                            FBufferedLines.Add(new BufferedLine
                             {
                                 Line = FCurrentLine,
                                 StartPos = FCurrentLineStart,
