@@ -563,8 +563,6 @@ namespace SpeedyTools
             bool recording = (varName = varName ?? "").Trim() != "" && varName[0] != '_';
             if (recording)
                 Input.BeginRecord();
-            else
-                Input.ReduceBuffer();
             try
             {
                 long startPos = Input.CurrentPos;
@@ -848,24 +846,10 @@ namespace SpeedyTools
                 }
             }
 
-            public void ReduceBuffer()
-            {
-                if (FRecordingLevel <= 0 && FBufferedLines != null && FBufferedLines.Count > 0)
-                {
-                    int mid = FindPosInBuffer(FCurrentPos);
-                    if (mid > 0)
-                    {
-                        int n = FBufferedLines.Count - mid;
-                        for (int i = 0; i < n; i++)
-                            FBufferedLines[i] = FBufferedLines[i + mid];
-                        FBufferedLines.RemoveRange(n, mid);
-                    }
-                }
-            }
-
             public void BeginRecord()
             {
-                ReduceBuffer();
+                if (FRecordingLevel == 0)
+                    TrimBuffer();
                 FRecordingLevel++;
             }
 
@@ -935,12 +919,6 @@ namespace SpeedyTools
 
             private char GetCharAt_Basic(long pos)
             {
-                if (FBufferedLines != null && FBufferedLines.Count > 0 && FRecordingLevel <= 0
-                    && pos >= FCurrentPos && FCurrentPos >= FCurrentLineStart
-                    && FCurrentLineStart > FBufferedLines[FBufferedLines.Count - 1].StartPos + FBufferedLines[FBufferedLines.Count - 1].Line.Length)
-                {
-                    FBufferedLines.Clear();
-                }
                 int inx = (int)(pos - FCurrentLineStart);
                 if (inx >= 0 && inx < FCurrentLine.Length)
                     return FCurrentLine[inx];
@@ -1005,6 +983,7 @@ namespace SpeedyTools
                     {
                         if (FBufferedLines == null)
                             FBufferedLines = new List<BufferedLine>();
+                        TrimBuffer();
                         if (FBufferedLines.Count <= 0)
                             FBufferedLines.Add(new BufferedLine
                             {
@@ -1025,6 +1004,23 @@ namespace SpeedyTools
                 {
                     FReadNextLineFun = null;
                     return false;
+                }
+            }
+
+            private void TrimBuffer()
+            {
+                if (FRecordingLevel <= 0 && FBufferedLines != null)
+                {
+                    int mid = 0;
+                    while (mid < FBufferedLines.Count && FBufferedLines[mid].StartPos < FCurrentLineStart)
+                        mid++;
+                    if (mid > 0)
+                    {
+                        int n = FBufferedLines.Count - mid;
+                        for (int i = 0; i < n; i++)
+                            FBufferedLines[i] = FBufferedLines[i + mid];
+                        FBufferedLines.RemoveRange(n, mid);
+                    }
                 }
             }
 
