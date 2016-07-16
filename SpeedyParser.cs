@@ -805,6 +805,7 @@ namespace SpeedyTools
             private bool FIsMultiline;
             private int FRecordingLevel;
             private List<BufferedLine> FBufferedLines;
+            private List<CommentedChars> FCommentsList;
             private long FLastGetCharPos;
             private char FLastGetChar;
 
@@ -812,6 +813,12 @@ namespace SpeedyTools
             {
                 public string Line;
                 public long StartPos;
+            }
+
+            private struct CommentedChars
+            {
+                public long StartPos;
+                public long EndPos;
             }
 
             public ParserInput(SpeedyParser sp_owner, string str, Func<string> readNextLine, int pos)
@@ -824,6 +831,7 @@ namespace SpeedyTools
                 FIsMultiline = readNextLine != null;
                 FRecordingLevel = 0;
                 FBufferedLines = null;
+                FCommentsList = null;
                 FLastGetCharPos = -1;
                 FLastGetChar = '\0';
                 if (FReadNextLineFun != null)
@@ -849,7 +857,10 @@ namespace SpeedyTools
             public void BeginRecord()
             {
                 if (FRecordingLevel == 0)
+                {
                     TrimBuffer();
+                    TrimComments();
+                }
                 FRecordingLevel++;
             }
 
@@ -869,6 +880,8 @@ namespace SpeedyTools
                     Tuple<string, string> comm = FindMatchingComment();
                     if (comm == null)
                         return c;
+                    CommentedChars commItem = new CommentedChars();
+                    commItem.StartPos = FCurrentPos - comm.Item1.Length;
                     if (comm.Item2 == null || comm.Item2.Length <= 0)
                         while ((c = GetCharAt(FCurrentPos)) != '\0' && c != '\n' && c != '\r')
                             FCurrentPos++;
@@ -888,6 +901,8 @@ namespace SpeedyTools
                                 throw exc;
                         }
                     }
+                    commItem.EndPos = FCurrentPos;
+                    AddComment(commItem);
                 }
                 return c;
             }
@@ -984,6 +999,7 @@ namespace SpeedyTools
                         if (FBufferedLines == null)
                             FBufferedLines = new List<BufferedLine>();
                         TrimBuffer();
+                        TrimComments();
                         if (FBufferedLines.Count <= 0)
                             FBufferedLines.Add(new BufferedLine
                             {
@@ -1064,7 +1080,7 @@ namespace SpeedyTools
                 StringBuilder res = new StringBuilder();
                 for (long i = startPos; i < endPos; i++)
                 {
-                    char c = GetCharAt(i);
+                    char c = (FindCommentInx(i) < 0)? GetCharAt(i) : ' ';
                     if (c == '\0')
                         break;
                     res.Append(c);
@@ -1083,7 +1099,54 @@ namespace SpeedyTools
                 }
                 return res.ToString();
             }
-        }
 
+            private void AddComment(CommentedChars commItem)
+            {
+                if (FindCommentInx(commItem.StartPos) < 0)
+                {
+                    if (FCommentsList == null)
+                        FCommentsList = new List<CommentedChars>();
+                    FCommentsList.Add(commItem);
+                }
+            }
+
+            private int FindCommentInx(long pos)
+            {
+                if(FCommentsList == null)
+                    return -1;
+                int a = 0;
+                int b = FCommentsList.Count - 1;
+                while (a <= b)
+                {
+                    int mid = (a + b) / 2;
+                    if (pos >= FCommentsList[mid].StartPos && pos < FCommentsList[mid].EndPos)
+                        return mid;
+                    else if (pos < FCommentsList[mid].StartPos)
+                        b = mid - 1;
+                    else if (pos >= FCommentsList[mid].EndPos)
+                        a = mid + 1;
+                    else
+                        break;
+                }
+                return -1;
+            }
+
+            private void TrimComments()
+            {
+                if (FCommentsList != null)
+                {
+                    int mid = 0;
+                    while (mid < FCommentsList.Count && FCommentsList[mid].EndPos <= FCurrentLineStart)
+                        mid++;
+                    if (mid > 0)
+                    {
+                        int n = FCommentsList.Count - mid;
+                        for (int i = 0; i < n; i++)
+                            FCommentsList[i] = FCommentsList[i + mid];
+                        FCommentsList.RemoveRange(n, mid);
+                    }
+                }
+            }
+        }
     }
 }
