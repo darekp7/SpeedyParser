@@ -560,18 +560,23 @@ namespace SpeedyTools
         public bool Eat(string varName)
         {
             Input.GotoPrintChar();
-            Input.BeginRecord();
+            bool recording = (varName = varName ?? "").Trim() != "" && varName[0] != '_';
+            if (recording)
+                Input.BeginRecord();
+            else
+                Input.ReduceBuffer();
             try
             {
                 long startPos = Input.CurrentPos;
                 while (Input.GotoPrintChar() != '\0' && !PointsAtSentinel())
                     GotoNextMatchingPos();
-                if (varName != null && (varName = varName.Trim()) != "" && varName[0] != '_')
+                if (recording)
                     Add2Result(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             finally
             {
-                Input.EndRecord();
+                if(recording)
+                    Input.EndRecord();
             }
             return true;
         }
@@ -843,7 +848,7 @@ namespace SpeedyTools
                 }
             }
 
-            public void BeginRecord()
+            public void ReduceBuffer()
             {
                 if (FRecordingLevel <= 0 && FBufferedLines != null && FBufferedLines.Count > 0)
                 {
@@ -856,6 +861,11 @@ namespace SpeedyTools
                         FBufferedLines.RemoveRange(n, mid);
                     }
                 }
+            }
+
+            public void BeginRecord()
+            {
+                ReduceBuffer();
                 FRecordingLevel++;
             }
 
@@ -987,10 +997,10 @@ namespace SpeedyTools
 
             private bool LoadNextLine(bool fromConstructor)
             {
-                long nextStart = FCurrentLineStart + FCurrentLine.Length + (NeedsEolnAtLineEnd(FCurrentLine) && !fromConstructor ? 1 : 0);
                 string ln = FReadNextLineFun();
                 if (ln != null)
                 {
+                    long nextStart = FCurrentLineStart + FCurrentLine.Length + (NeedsEolnAtLineEnd(FCurrentLine) && !fromConstructor ? 1 : 0);
                     if (FRecordingLevel > 0)
                     {
                         if (FBufferedLines == null)
