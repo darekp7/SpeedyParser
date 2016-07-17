@@ -478,6 +478,7 @@ namespace SpeedyTools
         public bool SetOptions(ParserOptions opt)
         {
             Options = opt ?? DefaultParserOptions;
+            Input.NotifyCommentsChanged();
             return true;
         }
 
@@ -808,6 +809,7 @@ namespace SpeedyTools
             private List<CommentedChars> FCommentsList;
             private long FLastGetCharPos;
             private char FLastGetChar;
+            private SimplifiedBloomFilter CommentsFilter;
 
             private struct BufferedLine
             {
@@ -834,8 +836,10 @@ namespace SpeedyTools
                 FCommentsList = null;
                 FLastGetCharPos = -1;
                 FLastGetChar = '\0';
+                CommentsFilter = new SimplifiedBloomFilter(0);
                 if (FReadNextLineFun != null)
                     LoadNextLine(fromConstructor: true);
+                NotifyCommentsChanged();
             }
 
             public long CurrentPos
@@ -877,7 +881,7 @@ namespace SpeedyTools
                 char c;
                 while ((c = GotoPrintChar_Basic()) != '\0')
                 {
-                    Tuple<string, string> comm = FindMatchingComment();
+                    Tuple<string, string> comm = FindMatchingComment(c);
                     if (comm == null)
                         return c;
                     CommentedChars commItem = new CommentedChars();
@@ -1067,12 +1071,24 @@ namespace SpeedyTools
                 return true;
             }
 
-            private Tuple<string, string> FindMatchingComment()
+            private Tuple<string, string> FindMatchingComment(char c)
             {
+                if (!CommentsFilter.Contains(c))
+                    return null;
                 foreach (var comm in Options.Comments)
                     if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
                         return comm;
                 return null;
+            }
+
+            public void NotifyCommentsChanged()
+            {
+                SimplifiedBloomFilter cf = new SimplifiedBloomFilter(0);
+                if(Options.Comments != null)
+                    foreach(var comm in Options.Comments)
+                        if(comm.Item1 != null && comm.Item1.Length > 0)
+                            cf = cf.Add(comm.Item1[0]);
+                CommentsFilter = cf;
             }
 
             public string GetInputSubstring_Unsafe(long startPos, long endPos)
@@ -1146,6 +1162,56 @@ namespace SpeedyTools
                         FCommentsList.RemoveRange(n, mid);
                     }
                 }
+            }
+        }
+
+        private struct SimplifiedBloomFilter
+        {
+            private ulong BitArray;
+
+            public SimplifiedBloomFilter(ulong bits)
+            {
+                BitArray = bits;
+            }
+
+            public bool IsEmpty()
+            {
+                return BitArray == 0;
+            }
+
+            public SimplifiedBloomFilter Add(char c)
+            {
+                return Add((int)c);
+            }
+            
+            public SimplifiedBloomFilter Add(int i)
+            {
+                return new SimplifiedBloomFilter(BitArray | ToBit(i));
+            }
+
+            public bool Contains(char c)
+            {
+                return Contains((int)c);
+            }
+
+            public bool Contains(int i)
+            {
+                return (BitArray & ToBit(i)) != 0;
+            }
+
+            private static ulong ToBit(int i)
+            {
+                return 1UL << ((i < 0) ? -i : i) % 64;
+            }
+
+            public SimplifiedBloomFilter UnionWith(SimplifiedBloomFilter sbf)
+            {
+                return new SimplifiedBloomFilter(BitArray | sbf.BitArray);
+            }
+
+            public SimplifiedBloomFilter IntersectionWith(SimplifiedBloomFilter sbf)
+            {
+                return new SimplifiedBloomFilter(BitArray & sbf.BitArray);
             }
         }
     }
