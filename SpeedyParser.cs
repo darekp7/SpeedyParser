@@ -682,7 +682,7 @@ namespace SpeedyTools
                 case QuoteSensitivity.SqlLike:
                     while ((c = Input.Advance()) != '\0')
                         if (c == closing_quote)
-                            if (Input.GetCharAt(Input.CurrentPos + 1) == closing_quote)
+                            if (Input.NextCharIs(closing_quote))
                                 Input.Advance();
                             else
                                 return;
@@ -887,13 +887,13 @@ namespace SpeedyTools
                     CommentedChars commItem = new CommentedChars();
                     commItem.StartPos = FCurrentPos - comm.Item1.Length;
                     if (comm.Item2 == null || comm.Item2.Length <= 0)
-                        while ((c = GetCharAt(FCurrentPos)) != '\0' && c != '\n' && c != '\r')
+                        while ((c = CurrentChar()) != '\0' && c != '\n' && c != '\r')
                             FCurrentPos++;
                     else
                     {
                         bool end_of_comment_found = false;
-                        for (; (c = GetCharAt(FCurrentPos)) != '\0'; FCurrentPos++)
-                            if (TestSubstring(comm.Item2))
+                        for (; (c = CurrentChar()) != '\0'; FCurrentPos++)
+                            if (TestCommentSubstring(comm.Item2))
                             {
                                 end_of_comment_found = true;
                                 break;
@@ -914,7 +914,7 @@ namespace SpeedyTools
             private char GotoPrintChar_Basic()
             {
                 char c;
-                while ((c = GetCharAt(FCurrentPos)) != '\0' && char.IsWhiteSpace(c))
+                while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
                     FCurrentPos++;
                 return c;
             }
@@ -927,6 +927,11 @@ namespace SpeedyTools
             public char CurrentChar() // NOTE: this should NOT BE a property because of unwanted side-effect during debugging
             {
                 return GetCharAt(FCurrentPos);
+            }
+
+            public bool NextCharIs(char c)
+            {
+                return GetCharAt(CurrentPos + 1) == c;
             }
 
             public char GetCharAt(long pos)
@@ -1062,7 +1067,7 @@ namespace SpeedyTools
                 FCurrentPos = pos;
             }
 
-            private bool TestSubstring(string str)
+            private bool TestCommentSubstring(string str)
             {
                 for (int i = 0; i < str.Length; i++)
                     if (GetCharAt(FCurrentPos + i) != str[i])
@@ -1076,7 +1081,7 @@ namespace SpeedyTools
                 if (!CommentsFilter.Contains(c))
                     return null;
                 foreach (var comm in Options.Comments)
-                    if (comm.Item1 != null && comm.Item1.Length > 0 && TestSubstring(comm.Item1))
+                    if (comm.Item1 != null && comm.Item1.Length > 0 && TestCommentSubstring(comm.Item1))
                         return comm;
                 return null;
             }
