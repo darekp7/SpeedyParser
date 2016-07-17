@@ -134,7 +134,7 @@ namespace SpeedyTools
         public ParserOptions Options = DefaultParserOptions;
         protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
-        protected List<string> Sentinels;
+        protected List<string> Sentinels = null;
 
         public ParserInput Input;
         public Dictionary<string, List<string>> Result = null;
@@ -145,7 +145,6 @@ namespace SpeedyTools
 
         public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
-            Sentinels = new List<string>();
             CompiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
             Body = CompiledExpression.Compile();
         }
@@ -330,7 +329,7 @@ namespace SpeedyTools
                 case ExpressionType.Constant:   // a constant value
                     var const_e = expr as ConstantExpression;
                     if (const_e != null && const_e.Value != null && (const_e.Value is string))
-                        Sentinels.Add(const_e.Value as string);
+                        AddSentinel(const_e.Value as string);
                     return expr;
                 case ExpressionType.Default:	// A default value.
                 case ExpressionType.IsFalse:    // A false condition value.
@@ -423,14 +422,28 @@ namespace SpeedyTools
                 string sents = ((obj as string) ?? "").Trim();
                 if (sents == "")
                     throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
-                Sentinels.Add(sents);
+                AddSentinel(sents);
             }
             if (obj is string[])
             {
                 string[] sents = obj as string[];
                 foreach (string sentinel in sents)
-                    Sentinels.Add(sentinel);
+                    AddSentinel(sentinel);
             }
+        }
+
+        private void AddSentinel(string sentinel)
+        {
+            sentinel = NormalizeSpaces(sentinel);
+            if(Sentinels == null)
+                Sentinels = new List<string>();
+            for (int i = 0; i < Sentinels.Count; i++)
+                if (Sentinels[i].Length < sentinel.Length)
+                {
+                    Sentinels.Insert(i, sentinel);
+                    return;
+                }
+            Sentinels.Add(sentinel);
         }
 
         public Expression[] ConvertArgumentsToLambdas(System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, int startInx)
@@ -695,6 +708,8 @@ namespace SpeedyTools
 
         private bool PointsAtSentinel()
         {
+            if (Sentinels == null)
+                return false;
             foreach (string sentinel in Sentinels)
                 if (Test(sentinel, consumeInput: false))
                     return true;
@@ -789,11 +804,35 @@ namespace SpeedyTools
             return true;
         }
 
-        public static int PatternGotoPrintChar(string pattern, int pos)
+        protected static int PatternGotoPrintChar(string pattern, int pos)
         {
             while (pos < pattern.Length && char.IsWhiteSpace(pattern[pos]))
                 pos++;
             return pos;
+        }
+
+        public static string NormalizeSpaces(string str)
+        {
+            if ((str = (str ?? "").Trim()) == "")
+                return str;
+            bool needs_normalization = false;
+            for(int i=1; i < str.Length; i++)
+                if (char.IsWhiteSpace(str[i]) && (str[i] != ' ' || char.IsWhiteSpace(str[i - 1])))
+                {
+                    needs_normalization = true;
+                    break;
+                }
+            if (needs_normalization)
+            {
+                StringBuilder sb = new StringBuilder(str[0]);
+                for (int i = 1; i < str.Length; i++)
+                    if (!char.IsWhiteSpace(str[i]))
+                        sb.Append(str[i]);
+                    else if (!char.IsWhiteSpace(str[i - 1]))
+                        sb.Append(' ');
+                str = sb.ToString();
+            }
+            return str;
         }
 
         public struct ParserInput
