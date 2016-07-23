@@ -378,15 +378,16 @@ namespace SpeedyTools
                     case "WhileOneOf":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
                         {
-                            TryAddSentinels(expr.Arguments[0], expr.Method.Name, 0);
-                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1);
+                            Expression[] s_sentinels = null;
+                            string s_sentinel = TryAddSentinels(expr.Arguments[0], expr.Method.Name, 0, out s_sentinels);
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1, s_sentinel, s_sentinels);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
                     case "Do":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
-                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0);
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null, null);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
@@ -412,31 +413,47 @@ namespace SpeedyTools
             return res;
         }
 
-        private void TryAddSentinels(Expression expr, string callingFunction, int paramInx)
+        private string TryAddSentinels(Expression expr, string callingFunction, int paramInx, out Expression[] out_sentinels)
         {
             object obj = Evaluate(expr, callingFunction, paramInx);
-            if (obj == null)
-                throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
-            if (obj is string)
-            {
-                string sents = ((obj as string) ?? "").Trim();
-                if (sents == "")
-                    throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
-                SentinelsList.Add(sents);
-            }
-            if (obj is string[])
-            {
-                string[] sents = obj as string[];
-                foreach (string sentinel in sents)
-                    SentinelsList.Add(sentinel);
-            }
+            if (obj != null)
+                if (obj is string)
+                {
+                    string s_sentinel = NormalizeSpaces((obj as string) ?? "");
+                    if (s_sentinel == "")
+                        throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
+                    SentinelsList.Add(s_sentinel);
+                    out_sentinels = null;
+                    return s_sentinel;
+                }
+                else if (obj is string[])
+                {
+                    string[] sents = obj as string[];
+                    Expression[] res = new Expression[sents.Length];
+                    int i = 0;
+                    foreach (string i_sentinel in sents)
+                    {
+                        string sentinel = NormalizeSpaces(i_sentinel);
+                        SentinelsList.Add(sentinel);
+                        res[i++] = Expression.Constant(sentinel);
+                    }
+                    out_sentinels = res;
+                    return null;
+                }
+            throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
         }
 
-        public Expression[] ConvertArgumentsToLambdas(System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, int startInx)
+        public Expression[] ConvertArgumentsToLambdas(
+            System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, 
+            int startInx, string sentinel, Expression[] sentinels)
         {
             Expression[] res = new Expression[arguments.Count];
             for (int i = 0; i < startInx; i++)
                 res[i] = arguments[i];
+            if (sentinel != null)
+                res[0] = Expression.Constant(sentinel);
+            if (sentinels != null)
+                res[0] = Expression.NewArrayInit(typeof(string), sentinels);
             for (int i_res = startInx; i_res < arguments.Count; i_res++)
             {
                 Expression expr = arguments[i_res];
