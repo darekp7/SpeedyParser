@@ -834,7 +834,7 @@ namespace SpeedyTools
 
         private bool PointsAtSentinel()
         {
-            if (Sentinels.Sentinels == null)
+            if (Sentinels.Sentinels == null || !Sentinels.BloomFilter.ContainsHash(Input.HashAtCurrentPos()))
                 return false;
             foreach (string sentinel in Sentinels.Sentinels)
                 if (Test(sentinel, consumeInput: false))
@@ -984,6 +984,16 @@ namespace SpeedyTools
                 str = sb.ToString();
             }
             return str;
+        }
+
+        protected int Hash(string str, int startPos)
+        {
+            if (!IsIdentChar(str[startPos]))
+                return (int)str[startPos];
+            int hash = 0;
+            for (int i = 0; i < 3 && startPos + i < str.Length && IsIdentChar(str[startPos + i]); i++)
+                hash = (hash << 2) ^ (int)str[startPos + i];
+            return hash;
         }
 
         /// <summary>
@@ -1302,6 +1312,12 @@ namespace SpeedyTools
                 return res.ToString();
             }
 
+            public int HashAtCurrentPos()
+            {
+                int i = (int)(FCurrentPos - FCurrentLineStart);
+                return Owner.Hash(FCurrentLine, i);
+            }
+
             public override string ToString() // for debugging
             {
                 StringBuilder res = new StringBuilder("input: ");
@@ -1379,37 +1395,27 @@ namespace SpeedyTools
 
             public SimplifiedBloomFilter Add(char c)
             {
-                return Add((int)c);
-            }
-
-            public int Hash(string str, int startPos, SpeedyParser p)
-            {
-                if (!p.IsIdentChar(str[startPos]))
-                    return (int)str[startPos];
-                int hash = 0;
-                for (int i = 0; i < 3 && startPos + i < str.Length && p.IsIdentChar(str[startPos + i]); i++)
-                    hash = (hash << 2) ^ (int)str[startPos + i];
-                return hash;
+                return AddHash((int)c);
             }
 
             public SimplifiedBloomFilter Add(string str, int startPos, SpeedyParser p)
             {
-                return Add(Hash(str, startPos, p));
+                return AddHash(p.Hash(str, startPos));
             }
 
-            private SimplifiedBloomFilter Add(int i)
+            private SimplifiedBloomFilter AddHash(int i)
             {
                 return new SimplifiedBloomFilter(BitArray | ToBit(i));
             }
 
             public bool Contains(char c)
             {
-                return Contains((int)c);
+                return ContainsHash((int)c);
             }
 
-            private bool Contains(int i)
+            public bool ContainsHash(int hash)
             {
-                return (BitArray & ToBit(i)) != 0;
+                return (BitArray & ToBit(hash)) != 0;
             }
 
             private static ulong ToBit(int i)
