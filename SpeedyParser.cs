@@ -132,7 +132,6 @@ namespace SpeedyTools
         private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
 
         public ParserOptions Options = DefaultParserOptions;
-        protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
         protected Sentinels SentinelsList;
 
@@ -143,12 +142,20 @@ namespace SpeedyTools
         {
         }
 
+        /// <summary>
+        /// Constructor.
+        /// </summary>
+        /// <param name="parserBody">expression describing how to parse the input</param>
         public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
         {
-            CompiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
-            Body = CompiledExpression.Compile();
+            var compiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
+            Body = compiledExpression.Compile();
         }
 
+        /// <summary>
+        /// Makes copy of the current object. Useful in multithreading because SpeedyParser is not thread safe. 
+        /// </summary>
+        /// <returns>copy of the current object.</returns>
         public SpeedyParser Clone()
         {
             return new SpeedyParser()
@@ -161,24 +168,39 @@ namespace SpeedyTools
             };
         }
 
-        public bool TryMatch(string str)
+        /// <summary>
+        /// Method parses the input. If parsing fails, method returns false, otherwise returns true.
+        /// </summary>
+        /// <param name="input">string to be parsed.</param>
+        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        public bool TryMatch(string input)
         {
-            Input = new ParserInput(this, str, null, 0);
+            Input = new ParserInput(this, input, null, 0);
             return Body(this);
         }
 
-        public bool TryMatch(string[] lines)
+        /// <summary>
+        /// Method parses the input. If parsing fails, method returns false, otherwise returns true.
+        /// </summary>
+        /// <param name="input">lines to be parsed</param>
+        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        public bool TryMatch(string[] inputLines)
         {
             int i_ln = 0;
             Func<string> readLine = null;
-            if(lines != null && lines.Length > 0)
+            if(inputLines != null && inputLines.Length > 0)
                 readLine = () =>
-                    (lines != null && i_ln < lines.Length) ? lines[i_ln++] ?? "" : null;
+                    (inputLines != null && i_ln < inputLines.Length) ? inputLines[i_ln++] ?? "" : null;
 
             Input = new ParserInput(this, "", readLine, 0);
             return Body(this);
         }
 
+        /// <summary>
+        /// Method parses the input. If parsing fails, method returns false, otherwise returns true.
+        /// </summary>
+        /// <param name="input">lines to be parsed</param>
+        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
         public bool TryMatch(IEnumerable<string> lines)
         {
             Func<string> readLine = null;
@@ -376,18 +398,30 @@ namespace SpeedyTools
                     case "While":
                     case "IfOneOf":
                     case "WhileOneOf":
+                        if ((expr.Method.Name == "If" || expr.Method.Name == "While") 
+                            && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
+                        {
+                            Expression first_parameter = Expression.Lambda(CompileExpression(expr.Arguments[0]));
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, first_parameter);
+                            return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name + "_bool"), args);
+                        }
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
                         {
                             Expression[] s_sentinels = null;
                             string s_sentinel = TryAddSentinels(expr.Arguments[0], expr.Method.Name, 0, out s_sentinels);
-                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1, s_sentinel, s_sentinels);
+                            Expression first_parameter = null;
+                            if (s_sentinel != null)
+                                first_parameter = Expression.Constant(s_sentinel);
+                            else if (s_sentinels != null)
+                                first_parameter = Expression.NewArrayInit(typeof(string), s_sentinels);
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1, first_parameter);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
                     case "Do":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
-                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null, null);
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
@@ -396,6 +430,9 @@ namespace SpeedyTools
             return expr;
         }
 
+        /// <summary>
+        /// Exception thrown if compilation fails.
+        /// </summary>
         public class ECompilationError : Exception
         {
             public ECompilationError(string msg)
@@ -404,7 +441,7 @@ namespace SpeedyTools
             }
         }
 
-        public static System.Reflection.MethodInfo GetImplementationMethod(Type objectType, string methodName)
+        protected static System.Reflection.MethodInfo GetImplementationMethod(Type objectType, string methodName)
         {
             string searchMethod = methodName + "_implementation";
             var res = objectType.GetMethod(searchMethod, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -443,17 +480,15 @@ namespace SpeedyTools
             throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be null", paramInx + 1, callingFunction));
         }
 
-        public Expression[] ConvertArgumentsToLambdas(
+        protected Expression[] ConvertArgumentsToLambdas(
             System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, 
-            int startInx, string sentinel, Expression[] sentinels)
+            int startInx, Expression first_parameter)
         {
             Expression[] res = new Expression[arguments.Count];
             for (int i = 0; i < startInx; i++)
                 res[i] = arguments[i];
-            if (sentinel != null)
-                res[0] = Expression.Constant(sentinel);
-            if (sentinels != null)
-                res[0] = Expression.NewArrayInit(typeof(string), sentinels);
+            if (first_parameter != null)
+                res[0] = first_parameter;
             for (int i_res = startInx; i_res < arguments.Count; i_res++)
             {
                 Expression expr = arguments[i_res];
@@ -491,6 +526,11 @@ namespace SpeedyTools
             }
         }
 
+        /// <summary>
+        /// Setting the parser's options.
+        /// </summary>
+        /// <param name="opt">parser options.</param>
+        /// <returns>true.</returns>
         public bool SetOptions(ParserOptions opt)
         {
             Options = opt ?? DefaultParserOptions;
@@ -498,6 +538,13 @@ namespace SpeedyTools
             return true;
         }
 
+        /// <summary>
+        /// If there is sentinel at the current input positon, the parser consumes the sentinel and evaluates
+        /// body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="sentinel">sentinel,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool If(string sentinel, params bool[] body)
         {
             return true;
@@ -514,14 +561,20 @@ namespace SpeedyTools
             return true;
         }
 
-        public bool IfOneOf(string[] sentinels, params bool[] body)
+        /// <summary>
+        /// If condition is true, the parser evaluates body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="condition">condition,</param>
+        /// <param name="body">expression(s) to be evaluated.</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        public bool If(bool condition, params bool[] body)
         {
             return true;
         }
 
-        protected bool IfOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        protected bool If_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            if (!TestOneOf(sentinels))
+            if (!condition())
                 return true;
             if (body != null)
                 foreach (var f in body)
@@ -530,6 +583,36 @@ namespace SpeedyTools
             return true;
         }
 
+        /// <summary>
+        /// If there is one of sentinels at the current input positon, the parser consumes the sentinel and evaluates
+        /// body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="sentinels">list sentinels,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        public bool IfOneOf(string[] sentinels, params bool[] body)
+        {
+            return true;
+        }
+
+        protected bool IfOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        {
+            if (!TestOneOf(sentinels, consumeInput: true))
+                return true;
+            if (body != null)
+                foreach (var f in body)
+                    if (!f())
+                        return false;
+            return true;
+        }
+
+        /// <summary>
+        /// While there is sentinel at the current input positon, the parser consumes the sentinel and evaluates
+        /// body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="sentinel">sentinel,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool While(string sentinel, params bool[] body)
         {
             return true;
@@ -545,14 +628,20 @@ namespace SpeedyTools
             return true;
         }
 
-        public bool WhileOneOf(string[] sentinels, params bool[] body)
+        /// <summary>
+        /// While the condition is true, the parser evaluates body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="condition">condition,</param>
+        /// <param name="body">expression(s) to be evaluated.</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        public bool While(bool condition, params bool[] body)
         {
             return true;
         }
 
-        protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            while (TestOneOf(sentinels))
+            while (condition())
                 if (body != null)
                     foreach (var f in body)
                         if (!f())
@@ -560,6 +649,35 @@ namespace SpeedyTools
             return true;
         }
 
+        /// <summary>
+        /// While there is one of sentinels at the current input positon, the parser consumes the sentinel and evaluates
+        /// body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        public bool WhileOneOf(string[] sentinels, params bool[] body)
+        {
+            return true;
+        }
+
+        protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        {
+            while (TestOneOf(sentinels, consumeInput: true))
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Method evaluates its own parameters starting from the first to the last. Returns true if all parameters
+        /// return true, otherwise stops evaluation and returns false. So, this method doeas exactly the same 
+        /// operations as the && operator.
+        /// </summary>
+        /// <param name="body">expression(s) to be evaluated</param>
+        /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool Do(params bool[] body)
         {
             return true;
@@ -574,6 +692,11 @@ namespace SpeedyTools
             return true;
         }
 
+        /// <summary>
+        /// Consumes the input up to the first non-consumeable sentinel or input's eof and stores it in variable. 
+        /// </summary>
+        /// <param name="varName">name of variable</param>
+        /// <returns>true.</returns>
         public bool Eat(string varName)
         {
             Input.GotoPrintChar();
@@ -719,6 +842,9 @@ namespace SpeedyTools
             return false;
         }
 
+        /// <summary>
+        /// Returs true if end of the input is reached.
+        /// </summary>
         public bool Eof
         {
             get
@@ -739,33 +865,52 @@ namespace SpeedyTools
             return true;
         }
 
+        /// <summary>
+        /// Returs true if character can be used in identifier.
+        /// </summary>
+        /// <param name="c">character</param>
+        /// <returns>true if character can be used in identifier, otherwise false.</returns>
         public virtual bool IsIdentChar(char c)
         {
             return c != '\0' && (char.IsLetterOrDigit(c) || Options.IdentCharsEx != null && Options.IdentCharsEx.IndexOf(c) >= 0);
         }
 
-        protected bool TestOneOf(string[] sentinels)
+        /// <summary>
+        /// Returns true if there is a sentinel at the current input's position.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels to be tested,</param>
+        /// <param name="consumeInput">if the parameter is true and there is the sentinel at the current input's position, 
+        /// the parser moves current position pointer after the sentinel.</param>
+        /// <returns>true if one of sentinels is met, otherwise false.</returns>
+        public bool TestOneOf(string[] sentinels, bool consumeInput)
         {
             Input.GotoPrintChar();
             foreach (string sent in sentinels)
-                if (Test(sent, consumeInput: true))
+                if (Test(sent, consumeInput: consumeInput))
                     return true;
             return false;
         }
 
-        public bool Test(string pattern, bool consumeInput)
+        /// <summary>
+        /// Returns true if there is a sentinel at the current input's position.
+        /// </summary>
+        /// <param name="sentinel">sentinel to be tested,</param>
+        /// <param name="consumeInput">if the parameter is true and there is the sentinel at the current input's position, 
+        /// the parser moves current position pointer after the sentinel.</param>
+        /// <returns>true if sentinel is met, otherwise false.</returns>
+        public bool Test(string sentinel, bool consumeInput)
         {
-            int endPos = pattern.LastIndexOf("->");
+            int endPos = sentinel.LastIndexOf("->");
             if (endPos < 0)
-                endPos = pattern.Length;
+                endPos = sentinel.Length;
             Input.GotoPrintChar();
             Input.BeginRecord();
             try
             {
                 long savePos = Input.CurrentPos;
                 int pattPos = 0;
-                while ((pattPos = PatternGotoPrintChar(pattern, pattPos)) < endPos)
-                    if (!TestSingleItem(pattern, endPos, ref pattPos))
+                while ((pattPos = PatternGotoPrintChar(sentinel, pattPos)) < endPos)
+                    if (!TestSingleItem(sentinel, endPos, ref pattPos))
                     {
                         Input.GoToPos_Unsafe(savePos);
                         return false;
@@ -777,12 +922,12 @@ namespace SpeedyTools
             {
                 Input.EndRecord();
             }
-            if (consumeInput && endPos + 2 < pattern.Length)
+            if (consumeInput && endPos + 2 < sentinel.Length)
             {
-                string varName = pattern.Substring(endPos + 2).Trim();
+                string varName = sentinel.Substring(endPos + 2).Trim();
                 if (varName != "" && varName[0] != '_')
                 {
-                    string varValue = pattern.Substring(0, endPos).Trim();
+                    string varValue = sentinel.Substring(0, endPos).Trim();
                     Add2Result(varName, varValue);
                 }
             }
@@ -814,6 +959,9 @@ namespace SpeedyTools
             return pos;
         }
 
+        /// <summary>
+        /// Trims the string and replaces whitespace sequences inside string by single spaces.
+        /// </summary>
         public static string NormalizeSpaces(string str)
         {
             if ((str = (str ?? "").Trim()) == "")
@@ -838,6 +986,9 @@ namespace SpeedyTools
             return str;
         }
 
+        /// <summary>
+        /// Parser's input.
+        /// </summary>
         public struct ParserInput
         {
             public SpeedyParser Owner;
