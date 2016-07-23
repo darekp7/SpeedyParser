@@ -134,7 +134,7 @@ namespace SpeedyTools
         public ParserOptions Options = DefaultParserOptions;
         protected Expression<Func<SpeedyParser, bool>> CompiledExpression;
         protected Func<SpeedyParser, bool> Body = null;
-        protected List<string> Sentinels = null;
+        protected Sentinels SentinelsList;
 
         public ParserInput Input;
         public Dictionary<string, List<string>> Result = null;
@@ -156,7 +156,7 @@ namespace SpeedyTools
                 Body = this.Body,
                 Options = this.Options,
                 Result = null,
-                Sentinels = Sentinels,
+                SentinelsList = SentinelsList,
                 Input = this.Input
             };
         }
@@ -329,7 +329,7 @@ namespace SpeedyTools
                 case ExpressionType.Constant:   // a constant value
                     var const_e = expr as ConstantExpression;
                     if (const_e != null && const_e.Value != null && (const_e.Value is string))
-                        AddSentinel(const_e.Value as string);
+                        SentinelsList.Add(const_e.Value as string);
                     return expr;
                 case ExpressionType.Default:	// A default value.
                 case ExpressionType.IsFalse:    // A false condition value.
@@ -422,28 +422,14 @@ namespace SpeedyTools
                 string sents = ((obj as string) ?? "").Trim();
                 if (sents == "")
                     throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
-                AddSentinel(sents);
+                SentinelsList.Add(sents);
             }
             if (obj is string[])
             {
                 string[] sents = obj as string[];
                 foreach (string sentinel in sents)
-                    AddSentinel(sentinel);
+                    SentinelsList.Add(sentinel);
             }
-        }
-
-        private void AddSentinel(string sentinel)
-        {
-            sentinel = NormalizeSpaces(sentinel);
-            if(Sentinels == null)
-                Sentinels = new List<string>();
-            for (int i = 0; i < Sentinels.Count; i++)
-                if (Sentinels[i].Length < sentinel.Length)
-                {
-                    Sentinels.Insert(i, sentinel);
-                    return;
-                }
-            Sentinels.Add(sentinel);
         }
 
         public Expression[] ConvertArgumentsToLambdas(System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, int startInx)
@@ -708,9 +694,9 @@ namespace SpeedyTools
 
         private bool PointsAtSentinel()
         {
-            if (Sentinels == null)
+            if (SentinelsList.SentinelsList == null)
                 return false;
-            foreach (string sentinel in Sentinels)
+            foreach (string sentinel in SentinelsList.SentinelsList)
                 if (Test(sentinel, consumeInput: false))
                     return true;
             return false;
@@ -1256,6 +1242,85 @@ namespace SpeedyTools
             public SimplifiedBloomFilter IntersectionWith(SimplifiedBloomFilter sbf)
             {
                 return new SimplifiedBloomFilter(BitArray & sbf.BitArray);
+            }
+        }
+
+        public struct Sentinels
+        {
+            public List<string> SentinelsList;
+            public BitArray Enabled;
+            public BitArray Consumeable;
+
+            public void Add(string sentinel)
+            {
+                sentinel = NormalizeSpaces(sentinel);
+                if (SentinelsList == null)
+                    SentinelsList = new List<string>();
+                for (int i = 0; i < SentinelsList.Count; i++)
+                    if (SentinelsList[i].Length < sentinel.Length)
+                    {
+                        SentinelsList.Insert(i, sentinel);
+                        Enabled = Enabled.SetAt(i, true);
+                        Consumeable = Consumeable.SetAt(i, false);
+                        return;
+                    }
+                Enabled = Enabled.SetAt(SentinelsList.Count, true);
+                Consumeable = Consumeable.SetAt(SentinelsList.Count, false);
+                SentinelsList.Add(sentinel);
+            }
+        }
+
+        public struct BitArray
+        {
+            private ulong Bits64;
+            private ulong Bits128;
+            private ulong[] MoreBits;
+
+            public bool GetAt(int i)
+            {
+                if (i < 0)
+                    return false;
+                else if (i < 64)
+                    return (Bits64 & (1UL << i)) != 0;
+                else if (i < 128)
+                    return (Bits128 & (1UL << (i - 64))) != 0;
+                else
+                {
+                    i -= 128;
+                    int inx = i / 64;
+                    if (MoreBits == null || inx >= MoreBits.Length)
+                        return false;
+                    return (MoreBits[inx] & (1UL << (i % 64))) != 0;
+                }
+            }
+
+            private static ulong SetBit(ulong n, int i, bool b)
+            {
+                ulong flag = 1UL << i;
+                return (b) ? n | flag : n & ~flag;
+            }
+
+            public BitArray SetAt(int i, bool b)
+            {
+                BitArray res = this;
+                if (i < 0 || GetAt(i) == b)
+                    return res;
+                else if (i < 64)
+                    res.Bits64 = SetBit(res.Bits64, i, b);
+                else if (i < 128)
+                    res.Bits128 = SetBit(res.Bits128, i-64, b);
+                else
+                {
+                    i -= 128;
+                    int inx = i / 64;
+                    int n1 = (MoreBits == null)? 0 : MoreBits.Length;
+                    int n = Math.Max(inx+1, n1);
+                    res.MoreBits = new ulong[n];
+                    for(int ii=0; ii < n; ii++)
+                        res.MoreBits[ii] = (ii < n1)? MoreBits[ii] : 0UL;
+                    res.MoreBits[inx] = SetBit(res.MoreBits[inx], i % 64, b);
+                }
+                return res;
             }
         }
     }
