@@ -133,7 +133,7 @@ namespace SpeedyTools
 
         public ParserOptions Options = DefaultParserOptions;
         protected Func<SpeedyParser, bool> Body = null;
-        protected Sentinels SentinelsList;
+        protected SentinelsList Sentinels;
 
         public ParserInput Input;
         public Dictionary<string, List<string>> Result = null;
@@ -163,7 +163,7 @@ namespace SpeedyTools
                 Body = this.Body,
                 Options = this.Options,
                 Result = null,
-                SentinelsList = SentinelsList,
+                Sentinels = Sentinels,
                 Input = this.Input
             };
         }
@@ -351,7 +351,7 @@ namespace SpeedyTools
                 case ExpressionType.Constant:   // a constant value
                     var const_e = expr as ConstantExpression;
                     if (const_e != null && const_e.Value != null && (const_e.Value is string))
-                        SentinelsList.Add(const_e.Value as string);
+                        Sentinels.Add(const_e.Value as string, this);
                     return expr;
                 case ExpressionType.Default:	// A default value.
                 case ExpressionType.IsFalse:    // A false condition value.
@@ -459,7 +459,7 @@ namespace SpeedyTools
                     string s_sentinel = NormalizeSpaces((obj as string) ?? "");
                     if (s_sentinel == "")
                         throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
-                    SentinelsList.Add(s_sentinel);
+                    Sentinels.Add(s_sentinel, this);
                     out_sentinels = null;
                     return s_sentinel;
                 }
@@ -471,7 +471,7 @@ namespace SpeedyTools
                     foreach (string i_sentinel in sents)
                     {
                         string sentinel = NormalizeSpaces(i_sentinel);
-                        SentinelsList.Add(sentinel);
+                        Sentinels.Add(sentinel, this);
                         res[i++] = Expression.Constant(sentinel);
                     }
                     out_sentinels = res;
@@ -834,9 +834,9 @@ namespace SpeedyTools
 
         private bool PointsAtSentinel()
         {
-            if (SentinelsList.SentinelsList == null)
+            if (Sentinels.Sentinels == null)
                 return false;
-            foreach (string sentinel in SentinelsList.SentinelsList)
+            foreach (string sentinel in Sentinels.Sentinels)
                 if (Test(sentinel, consumeInput: false))
                     return true;
             return false;
@@ -1363,7 +1363,7 @@ namespace SpeedyTools
             }
         }
 
-        private struct SimplifiedBloomFilter
+        public struct SimplifiedBloomFilter
         {
             private ulong BitArray;
 
@@ -1381,8 +1381,23 @@ namespace SpeedyTools
             {
                 return Add((int)c);
             }
-            
-            public SimplifiedBloomFilter Add(int i)
+
+            public int Hash(string str, int startPos, SpeedyParser p)
+            {
+                if (!p.IsIdentChar(str[startPos]))
+                    return (int)str[startPos];
+                int hash = 0;
+                for (int i = 0; i < 3 && startPos + i < str.Length && p.IsIdentChar(str[startPos + i]); i++)
+                    hash = (hash << 2) ^ (int)str[startPos + i];
+                return hash;
+            }
+
+            public SimplifiedBloomFilter Add(string str, int startPos, SpeedyParser p)
+            {
+                return Add(Hash(str, startPos, p));
+            }
+
+            private SimplifiedBloomFilter Add(int i)
             {
                 return new SimplifiedBloomFilter(BitArray | ToBit(i));
             }
@@ -1392,7 +1407,7 @@ namespace SpeedyTools
                 return Contains((int)c);
             }
 
-            public bool Contains(int i)
+            private bool Contains(int i)
             {
                 return (BitArray & ToBit(i)) != 0;
             }
@@ -1413,28 +1428,31 @@ namespace SpeedyTools
             }
         }
 
-        public struct Sentinels
+        public struct SentinelsList
         {
-            public List<string> SentinelsList;
+            public List<string> Sentinels;
             public BitArray Enabled;
             public BitArray Consumeable;
+            public SimplifiedBloomFilter BloomFilter;
 
-            public void Add(string sentinel)
+            public void Add(string sentinel, SpeedyParser p)
             {
                 sentinel = NormalizeSpaces(sentinel);
-                if (SentinelsList == null)
-                    SentinelsList = new List<string>();
-                for (int i = 0; i < SentinelsList.Count; i++)
-                    if (SentinelsList[i].Length < sentinel.Length)
+                if (Sentinels == null)
+                    Sentinels = new List<string>();
+                for (int i = 0; i < Sentinels.Count; i++)
+                    if (Sentinels[i].Length < sentinel.Length)
                     {
-                        SentinelsList.Insert(i, sentinel);
+                        Sentinels.Insert(i, sentinel);
                         Enabled = Enabled.SetAt(i, true);
                         Consumeable = Consumeable.SetAt(i, false);
+                        BloomFilter = BloomFilter.Add(sentinel, 0, p);
                         return;
                     }
-                Enabled = Enabled.SetAt(SentinelsList.Count, true);
-                Consumeable = Consumeable.SetAt(SentinelsList.Count, false);
-                SentinelsList.Add(sentinel);
+                Enabled = Enabled.SetAt(Sentinels.Count, true);
+                Consumeable = Consumeable.SetAt(Sentinels.Count, false);
+                BloomFilter = BloomFilter.Add(sentinel, 0, p);
+                Sentinels.Add(sentinel);
             }
         }
 
