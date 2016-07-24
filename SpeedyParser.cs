@@ -402,7 +402,7 @@ namespace SpeedyTools
                             && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
                         {
                             Expression first_parameter = Expression.Lambda(CompileExpression(expr.Arguments[0]));
-                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, first_parameter);
+                            Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 1, first_parameter);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name + "_bool"), args);
                         }
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
@@ -423,6 +423,15 @@ namespace SpeedyTools
                         {
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
+                        }
+                        break;
+                    case "Test":
+                    case "TestOneOf":
+                        if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
+                        {
+                            Expression[] s_sentinels = null;
+                            TryAddSentinels(expr.Arguments[0], expr.Method.Name, 0, out s_sentinels);
+                            return expr;
                         }
                         break;
                 }
@@ -547,7 +556,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool If(string sentinel, params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool If_implementation(string str, Func<bool>[] body)
@@ -569,7 +578,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool If(bool condition, params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool If_bool_implementation(Func<bool> condition, Func<bool>[] body)
@@ -592,7 +601,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool IfOneOf(string[] sentinels, params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool IfOneOf_implementation(string[] sentinels, Func<bool>[] body)
@@ -615,7 +624,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool While(string sentinel, params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool While_implementation(string str, Func<bool>[] body)
@@ -636,7 +645,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool While(bool condition, params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
@@ -658,7 +667,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool WhileOneOf(string[] sentinels, params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
@@ -680,7 +689,7 @@ namespace SpeedyTools
         /// <returns>true if parsing succeeded, otherwise false.</returns>
         public bool Do(params bool[] body)
         {
-            return true;
+            return false;
         }
 
         protected bool Do_implementation(Func<bool>[] body)
