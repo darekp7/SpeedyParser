@@ -349,9 +349,9 @@ namespace SpeedyTools
                     var call_e = expr as MethodCallExpression;
                     return (call_e != null) ? CompileCall(call_e) : expr;
                 case ExpressionType.Constant:   // a constant value
-                    var const_e = expr as ConstantExpression;
+                    /*var const_e = expr as ConstantExpression;
                     if (const_e != null && const_e.Value != null && (const_e.Value is string))
-                        Sentinels.Add(const_e.Value as string, this);
+                        Sentinels.Add(const_e.Value as string, this);*/
                     return expr;
                 case ExpressionType.Default:	// A default value.
                 case ExpressionType.IsFalse:    // A false condition value.
@@ -389,16 +389,15 @@ namespace SpeedyTools
 
         protected virtual Expression CompileCall(MethodCallExpression expr)
         {
+            var pars = expr.Method.GetParameters() ?? new System.Reflection.ParameterInfo[] { };
             if (expr.Object.Type == typeof(SpeedyParser))
-            {
-                var pars = expr.Method.GetParameters() ?? new System.Reflection.ParameterInfo[] { };
                 switch (expr.Method.Name)
                 {
                     case "If":
                     case "While":
                     case "IfOneOf":
                     case "WhileOneOf":
-                        if ((expr.Method.Name == "If" || expr.Method.Name == "While") 
+                        if ((expr.Method.Name == "If" || expr.Method.Name == "While")
                             && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
                         {
                             Expression first_parameter = Expression.Lambda(CompileExpression(expr.Arguments[0]));
@@ -435,6 +434,19 @@ namespace SpeedyTools
                         }
                         break;
                 }
+            if (pars.Length > 0 && expr.Arguments.Count == pars.Length && expr.Method.Name != "SetOptions")
+            {
+                Expression[] args = new Expression[expr.Arguments.Count];
+                bool diff = false;
+                for (int i = 0; i < args.Length; i++)
+                {
+                    Expression expr1 = expr.Arguments[i];
+                    Expression expr2 = CompileExpression(expr1);
+                    if (!object.ReferenceEquals(expr1, expr2))
+                        diff = true;
+                    args[i] = expr2;
+                }
+                return diff? Expression.Call(expr.Object, expr.Method, args) : expr;
             }
             return expr;
         }
@@ -553,7 +565,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinel">sentinel,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool If(string sentinel, params bool[] body)
         {
             return false;
@@ -571,11 +583,12 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// If condition is true, the parser evaluates body parameters. Otherwise returns true.
+        /// If condition is true, the parser consumes the input related with condition and evaluates body parameters. 
+        /// Otherwise returns true.
         /// </summary>
         /// <param name="condition">condition,</param>
         /// <param name="body">expression(s) to be evaluated.</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool If(bool condition, params bool[] body)
         {
             return false;
@@ -583,12 +596,31 @@ namespace SpeedyTools
 
         protected bool If_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            if (!condition())
+            if (!If_bool_TestCondition_Safe(condition))
                 return true;
             if (body != null)
                 foreach (var f in body)
                     if (!f())
                         return false;
+            return true;
+        }
+
+        protected bool If_bool_TestCondition_Safe(Func<bool> condition)
+        {
+            Input.BeginRecord();
+            try
+            {
+                long savePos = Input.CurrentPos;
+                if (!condition())
+                {
+                    Input.GoToPos_Unsafe(savePos);
+                    return false;
+                }
+            }
+            finally
+            {
+                Input.EndRecord();
+            }
             return true;
         }
 
@@ -598,7 +630,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinels">list sentinels,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool IfOneOf(string[] sentinels, params bool[] body)
         {
             return false;
@@ -621,7 +653,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinel">sentinel,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool While(string sentinel, params bool[] body)
         {
             return false;
@@ -642,7 +674,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="condition">condition,</param>
         /// <param name="body">expression(s) to be evaluated.</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool While(bool condition, params bool[] body)
         {
             return false;
@@ -650,7 +682,7 @@ namespace SpeedyTools
 
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            while (condition())
+            while (If_bool_TestCondition_Safe(condition))
                 if (body != null)
                     foreach (var f in body)
                         if (!f())
@@ -664,7 +696,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinels">list of sentinels,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool WhileOneOf(string[] sentinels, params bool[] body)
         {
             return false;
@@ -686,7 +718,7 @@ namespace SpeedyTools
         /// operations as the && operator.
         /// </summary>
         /// <param name="body">expression(s) to be evaluated</param>
-        /// <returns>true if parsing succeeded, otherwise false.</returns>
+        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
         public bool Do(params bool[] body)
         {
             return false;
@@ -1453,9 +1485,15 @@ namespace SpeedyTools
             public void Add(string sentinel, SpeedyParser p)
             {
                 sentinel = NormalizeSpaces(sentinel);
+                int endInx = sentinel.LastIndexOf("->");
+                if (endInx >= 0)
+                    sentinel = sentinel.Substring(0, endInx).Trim();
                 if (Sentinels == null)
                     Sentinels = new List<string>();
                 for (int i = 0; i < Sentinels.Count; i++)
+                {
+                    if (Sentinels[i] == sentinel)
+                        return;
                     if (Sentinels[i].Length < sentinel.Length)
                     {
                         Sentinels.Insert(i, sentinel);
@@ -1464,6 +1502,7 @@ namespace SpeedyTools
                         BloomFilter = BloomFilter.Add(sentinel, 0, p);
                         return;
                     }
+                }
                 Enabled = Enabled.SetAt(Sentinels.Count, true);
                 Consumeable = Consumeable.SetAt(Sentinels.Count, false);
                 BloomFilter = BloomFilter.Add(sentinel, 0, p);
