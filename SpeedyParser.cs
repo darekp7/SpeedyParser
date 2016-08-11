@@ -158,14 +158,16 @@ namespace SpeedyTools
         /// <returns>copy of the current object.</returns>
         public SpeedyParser Clone()
         {
-            return new SpeedyParser()
+            var res = new SpeedyParser()
             {
                 Body = this.Body,
                 Options = this.Options,
                 Result = null,
-                Sentinels = Sentinels,
-                Input = this.Input
+                Sentinels = this.Sentinels.Clone(),
+                Input = this.Input.Clone()
             };
+            res.Input.Owner = res;
+            return res;
         }
 
         /// <summary>
@@ -1086,6 +1088,16 @@ namespace SpeedyTools
                 NotifyCommentsChanged();
             }
 
+            public ParserInput Clone()
+            {
+                var res = this;
+                if(FBufferedLines != null)
+                    res.FBufferedLines = new List<BufferedLine>(FBufferedLines);
+                if (FCommentsList != null)
+                    res.FCommentsList = new List<CommentedChars>(FCommentsList);
+                return res;
+            }
+
             public long CurrentPos
             {
                 get
@@ -1508,6 +1520,14 @@ namespace SpeedyTools
                 BloomFilter = BloomFilter.Add(sentinel, 0, p);
                 Sentinels.Add(sentinel);
             }
+
+            public SentinelsList Clone()
+            {
+                SentinelsList res = this;
+                res.Enabled = Enabled.Clone();
+                res.Consumeable = Consumeable.Clone();
+                return res;
+            }
         }
 
         public struct BitArray
@@ -1515,6 +1535,18 @@ namespace SpeedyTools
             private ulong Bits64;
             private ulong Bits128;
             private ulong[] MoreBits;
+
+            public BitArray Clone()
+            {
+                var res = this;
+                if (MoreBits != null)
+                {
+                    res.MoreBits = new ulong[MoreBits.Length];
+                    for (int i = 0; i < MoreBits.Length; i++)
+                        res.MoreBits[i] = MoreBits[i];
+                }
+                return res;
+            }
 
             public bool GetAt(int i)
             {
