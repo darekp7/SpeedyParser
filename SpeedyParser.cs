@@ -154,7 +154,7 @@ namespace SpeedyTools
         protected SentinelsList Sentinels;
 
         public ParserInput Input;
-        public Dictionary<string, List<string>> Result = null;
+        public SpeedyParserResult Result = new SpeedyParserResult();
 
         protected SpeedyParser()
         {
@@ -174,17 +174,12 @@ namespace SpeedyTools
         /// Makes copy of the current object. Useful in multithreading because SpeedyParser is not thread safe. 
         /// </summary>
         /// <returns>copy of the current object.</returns>
-        public SpeedyParser Clone()
+        public SpeedyParser Duplicate()
         {
-            var res = new SpeedyParser()
-            {
-                Body = this.Body,
-                Options = this.Options,
-                Result = null,
-                Sentinels = this.Sentinels.Clone(),
-                Input = this.Input.Clone()
-            };
-            res.Input.Owner = res;
+            var res = new SpeedyParser();
+            res.Body = Body;
+            res.Options = Options;
+            res.Sentinels = Sentinels.Clone();
             return res;
         }
 
@@ -417,6 +412,8 @@ namespace SpeedyTools
                     case "While":
                     case "IfOneOf":
                     case "WhileOneOf":
+                    case "IfAtLeastOneOf":
+                    case "WhileAtLeastOneOf":
                         if ((expr.Method.Name == "If" || expr.Method.Name == "While")
                             && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
                         {
@@ -446,11 +443,12 @@ namespace SpeedyTools
                         break;
                     case "Test":
                     case "TestOneOf":
+                    case "TestAtLeastOneOf":
+                    case "SetSentinel":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
                         {
                             Expression[] s_sentinels = null;
                             TryAddSentinels(expr.Arguments[0], expr.Method.Name, 0, out s_sentinels);
-                            return expr;
                         }
                         break;
                 }
@@ -466,7 +464,7 @@ namespace SpeedyTools
                         diff = true;
                     args[i] = expr2;
                 }
-                return diff? Expression.Call(expr.Object, expr.Method, args) : expr;
+                return diff ? Expression.Call(expr.Object, expr.Method, args) : expr;
             }
             return expr;
         }
@@ -585,7 +583,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinel">sentinel,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool If(string sentinel, params bool[] body)
         {
             return false;
@@ -593,13 +591,21 @@ namespace SpeedyTools
 
         protected bool If_implementation(string str, Func<bool>[] body)
         {
-            if (!Test(str, consumeInput: true))
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                if (!Test(str, consumeInput: true))
+                    return true;
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
                 return true;
-            if (body != null)
-                foreach (var f in body)
-                    if (!f())
-                        return false;
-            return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         /// <summary>
@@ -608,7 +614,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="condition">condition,</param>
         /// <param name="body">expression(s) to be evaluated.</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool If(bool condition, params bool[] body)
         {
             return false;
@@ -616,13 +622,21 @@ namespace SpeedyTools
 
         protected bool If_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            if (!If_bool_TestCondition_Safe(condition))
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                if (!If_bool_TestCondition_Safe(condition))
+                    return true;
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
                 return true;
-            if (body != null)
-                foreach (var f in body)
-                    if (!f())
-                        return false;
-            return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         protected bool If_bool_TestCondition_Safe(Func<bool> condition)
@@ -648,9 +662,9 @@ namespace SpeedyTools
         /// If there is one of sentinels at the current input positon, the parser consumes the sentinel and evaluates
         /// body parameters. Otherwise returns true.
         /// </summary>
-        /// <param name="sentinels">list sentinels,</param>
+        /// <param name="sentinels">list of sentinels,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool IfOneOf(string[] sentinels, params bool[] body)
         {
             return false;
@@ -658,13 +672,52 @@ namespace SpeedyTools
 
         protected bool IfOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
-            if (!TestOneOf(sentinels, consumeInput: true))
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                if (!TestOneOf(sentinels, consumeInput: true))
+                    return true;
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
                 return true;
-            if (body != null)
-                foreach (var f in body)
-                    if (!f())
-                        return false;
-            return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
+        }
+
+        /// <summary>
+        /// If there is a sequence of one or more sentinels at the current input positon, the parser consumes the sentinels 
+        /// and evaluates body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinels are met.</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool IfAtLeastOneOf(string[] sentinels, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool IfAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        {
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                if (!TestAtLeastOneOf(sentinels))
+                    return true;
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
+                return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         /// <summary>
@@ -673,7 +726,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinel">sentinel,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool While(string sentinel, params bool[] body)
         {
             return false;
@@ -681,12 +734,20 @@ namespace SpeedyTools
 
         protected bool While_implementation(string str, Func<bool>[] body)
         {
-            while (Test(str, consumeInput: true))
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-            return true;
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                while (Test(str, consumeInput: true))
+                    if (body != null)
+                        foreach (var f in body)
+                            if (!f())
+                                return false;
+                return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         /// <summary>
@@ -694,7 +755,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="condition">condition,</param>
         /// <param name="body">expression(s) to be evaluated.</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool While(bool condition, params bool[] body)
         {
             return false;
@@ -702,12 +763,20 @@ namespace SpeedyTools
 
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            while (If_bool_TestCondition_Safe(condition))
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-            return true;
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                while (If_bool_TestCondition_Safe(condition))
+                    if (body != null)
+                        foreach (var f in body)
+                            if (!f())
+                                return false;
+                return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         /// <summary>
@@ -716,7 +785,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="sentinels">list of sentinels,</param>
         /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool WhileOneOf(string[] sentinels, params bool[] body)
         {
             return false;
@@ -724,12 +793,50 @@ namespace SpeedyTools
 
         protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
-            while (TestOneOf(sentinels, consumeInput: true))
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-            return true;
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                while (TestOneOf(sentinels, consumeInput: true))
+                    if (body != null)
+                        foreach (var f in body)
+                            if (!f())
+                                return false;
+                return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
+        }
+
+        /// <summary>
+        /// While there is a sequence of one or more sentinels at the current input positon, the parser consumes the sentinels 
+        /// and evaluates body parameters. Otherwise returns true.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinels are met.</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool WhileAtLeastOneOf(string[] sentinels, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool WhileAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        {
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                while (TestAtLeastOneOf(sentinels))
+                    if (body != null)
+                        foreach (var f in body)
+                            if (!f())
+                                return false;
+                return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         /// <summary>
@@ -738,7 +845,7 @@ namespace SpeedyTools
         /// operations as the && operator.
         /// </summary>
         /// <param name="body">expression(s) to be evaluated</param>
-        /// <returns>false if any evaluated body returned false, otherwise true.</returns>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
         public bool Do(params bool[] body)
         {
             return false;
@@ -746,19 +853,28 @@ namespace SpeedyTools
 
         protected bool Do_implementation(Func<bool>[] body)
         {
-            if (body != null)
-                foreach (var f in body)
-                    if (!f())
-                        return false;
-            return true;
+            SentinelsList saveSent = Sentinels.Clone();
+            try
+            {
+                if (body != null)
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
+                return true;
+            }
+            finally
+            {
+                Sentinels = saveSent;
+            }
         }
 
         /// <summary>
-        /// Consumes the input up to the first non-consumeable sentinel or input's eof and stores it in variable. 
+        /// Consumes the input up to the first active sentinel or input's eof and stores it in variable 
         /// </summary>
-        /// <param name="varName">name of variable</param>
-        /// <returns>true.</returns>
-        public bool Eat(string varName)
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                       the value is not stored in Result</param>
+        /// <returns>true</returns>
+        public bool String(string varName)
         {
             Input.GotoPrintChar();
             bool recording = (varName = varName ?? "").Trim() != "" && varName[0] != '_';
@@ -770,7 +886,7 @@ namespace SpeedyTools
                 while (Input.GotoPrintChar() != '\0' && !PointsAtSentinel())
                     GotoNextMatchingPos();
                 if (recording)
-                    Add2Result(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
+                    Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             finally
             {
@@ -778,6 +894,35 @@ namespace SpeedyTools
                     Input.EndRecord();
             }
             return true;
+        }
+
+        /// <summary>
+        /// Consumes the input up to the first active sentinel or input's eof and puts it as the argument of 
+        /// the function passed as parameter.
+        /// </summary>
+        /// <param name="consumingAction">action taking consumed input as a parameter</param>
+        /// <returns>method returns the value returned by consumingAction</returns>
+        public bool String(Func<string, bool> consumingAction)
+        {
+            Input.GotoPrintChar();
+            bool recording = consumingAction != null;
+            bool res = true;
+            if (recording)
+                Input.BeginRecord();
+            try
+            {
+                long startPos = Input.CurrentPos;
+                while (Input.GotoPrintChar() != '\0' && !PointsAtSentinel())
+                    GotoNextMatchingPos();
+                if (recording)
+                    res = consumingAction(Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
+            }
+            finally
+            {
+                if (recording)
+                    Input.EndRecord();
+            }
+            return res;
         }
 
         /// <summary>
@@ -946,18 +1091,6 @@ namespace SpeedyTools
             }
         }
 
-        public bool Add2Result(string varName, string varValue)
-        {
-            varName = varName ?? "";
-            varValue = varValue ?? "";
-            if (Result == null)
-                Result = new Dictionary<string, List<string>>();
-            if (!Result.ContainsKey(varName))
-                Result[varName] = new List<string>();
-            Result[varName].Add(varValue);
-            return true;
-        }
-
         /// <summary>
         /// Returs true if character can be used in identifier.
         /// </summary>
@@ -982,6 +1115,20 @@ namespace SpeedyTools
                 if (Test(sent, consumeInput: consumeInput))
                     return true;
             return false;
+        }
+
+        /// <summary>
+        /// Returns true if there is nonepmty sequence of sentinels (one or more) at the input starting from current input's position.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels to be tested,</param>
+        /// <returns>true if one of sentinels is met, otherwise false.</returns>
+        public bool TestAtLeastOneOf(string[] sentinels)
+        {
+            if (!TestOneOf(sentinels, consumeInput: true))
+                return false;
+            while (TestOneOf(sentinels, consumeInput: true))
+                ;
+            return true;
         }
 
         /// <summary>
@@ -1021,7 +1168,7 @@ namespace SpeedyTools
                 if (varName != "" && varName[0] != '_')
                 {
                     string varValue = sentinel.Substring(0, endPos).Trim();
-                    Add2Result(varName, varValue);
+                    Result.Add(varName, varValue);
                 }
             }
             return true;
@@ -1136,16 +1283,6 @@ namespace SpeedyTools
                 if (FReadNextLineFun != null)
                     LoadNextLine(fromConstructor: true);
                 NotifyCommentsChanged();
-            }
-
-            public ParserInput Clone()
-            {
-                var res = this;
-                if(FBufferedLines != null)
-                    res.FBufferedLines = new List<BufferedLine>(FBufferedLines);
-                if (FCommentsList != null)
-                    res.FCommentsList = new List<CommentedChars>(FCommentsList);
-                return res;
             }
 
             public long CurrentPos
@@ -1700,6 +1837,93 @@ namespace SpeedyTools
                     res.MoreBits[inx] = SetBit(res.MoreBits[inx], i % 64, b);
                 }
                 return res;
+            }
+        }
+
+        /// <summary>
+        /// Result of parsing
+        /// </summary>
+        public class SpeedyParserResult
+        {
+            /// <summary>
+            /// List of variables and values used internally by the class 
+            /// </summary>
+            public Dictionary<string, List<string>> RawData = null;
+
+            /// <summary>
+            /// Appends value to variable to the list of values for specified variable
+            /// </summary>
+            /// <param name="varName">name of the variable</param>
+            /// <param name="value">value</param>
+            /// <returns>always true</returns>
+            public bool Add(string varName, string value)
+            {
+                varName = varName ?? "";
+                value = value ?? "";
+                if (RawData == null)
+                    RawData = new Dictionary<string, List<string>>();
+                List<string> listOfValues;
+                if (!RawData.TryGetValue(varName, out listOfValues))
+                    RawData[varName] = listOfValues = new List<string>();
+                listOfValues.Add(value);
+                return true;
+            }
+
+            /// <summary>
+            /// Returns variable value. If variable has more than one value, the first value is returned.
+            /// If variable has no value or variable doesn't exist, empty string is returned.
+            /// </summary>
+            /// <param name="varName">variable name</param>
+            /// <returns>variable value or empty string</returns>
+            public string GetValue(string varName)
+            {
+                return GetValue(varName, 0);
+            }
+
+            /// <summary>
+            /// Returns variable value at specified index. If value index is invalid or variable doesn't exist, 
+            /// empty string is returned.
+            /// </summary>
+            /// <param name="varName">variable name</param>
+            /// <param name="inx">value index</param>
+            /// <returns>variable value or empty string</returns>
+            public string GetValue(string varName, int inx)
+            {
+                if (RawData == null)
+                    return "";
+                List<string> listOfValues;
+                if (!RawData.TryGetValue(varName, out listOfValues))
+                    return "";
+                return (inx >= 0 && inx < listOfValues.Count) ? listOfValues[inx] : "";
+            }
+
+            /// <summary>
+            /// Returns number of values assigned to specified variable
+            /// </summary>
+            /// <param name="varName">name of the variable</param>
+            /// <returns>number of values</returns>
+            public int ValuesCount(string varName)
+            {
+                if (RawData == null)
+                    return 0;
+                List<string> listOfValues;
+                return (RawData.TryGetValue(varName, out listOfValues)) ? listOfValues.Count : 0;
+            }
+
+            /// <summary>
+            /// Returns total count of all values (for all variables)
+            /// </summary>
+            public int TotalCount
+            {
+                get
+                {
+                    if(RawData == null)
+                        return 0;
+                    int res = 0;
+                    foreach (var pair in RawData)
+                        res += pair.Value.Count;
+                    return res;
+                }
             }
         }
     }
