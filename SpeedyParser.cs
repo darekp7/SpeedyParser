@@ -190,6 +190,7 @@ namespace SpeedyTools
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
         public bool TryMatch(string input)
         {
+            StartMatching();
             Input = new ParserInput(this, input, null, 0);
             return Body(this);
         }
@@ -201,6 +202,7 @@ namespace SpeedyTools
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
         public bool TryMatch(string[] inputLines)
         {
+            StartMatching();
             int i_ln = 0;
             Func<string> readLine = null;
             if(inputLines != null && inputLines.Length > 0)
@@ -218,6 +220,7 @@ namespace SpeedyTools
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
         public bool TryMatch(IEnumerable<string> lines)
         {
+            StartMatching();
             Func<string> readLine = null;
             if (lines != null)
             {
@@ -227,6 +230,12 @@ namespace SpeedyTools
             }
             Input = new ParserInput(this, "", readLine, 0);
             return Body(this);
+        }
+
+        private void StartMatching()
+        {
+            Sentinels.StartMatching();
+            Result.Clear();
         }
 
         protected virtual Expression CompileExpression(Expression expr)
@@ -1692,27 +1701,13 @@ namespace SpeedyTools
                         return;
                     if (Sentinels[i].Length < sentinel.Length)
                     {
-                        InsertSentinelState(i);
                         Sentinels.Insert(i, sentinel);
-                        Enabled = Enabled.SetAt(i, true);
-                        Consumeable = Consumeable.SetAt(i, false);
                         BloomFilter = BloomFilter.Add(sentinel, 0, p);
                         return;
                     }
                 }
-                Enabled = Enabled.SetAt(Sentinels.Count, true);
-                Consumeable = Consumeable.SetAt(Sentinels.Count, false);
                 BloomFilter = BloomFilter.Add(sentinel, 0, p);
                 Sentinels.Add(sentinel);
-            }
-
-            private void InsertSentinelState(int inx)
-            {
-                for (int i = Sentinels.Count; i > inx; i--)
-                {
-                    Enabled = Enabled.SetAt(i, Enabled.GetAt(i-1));
-                    Consumeable = Consumeable.SetAt(i, Consumeable.GetAt(i-1));
-                }
             }
 
             public SentinelsList Clone()
@@ -1721,6 +1716,16 @@ namespace SpeedyTools
                 res.Enabled = Enabled.Clone();
                 res.Consumeable = Consumeable.Clone();
                 return res;
+            }
+
+            public void StartMatching()
+            {
+                if (Sentinels != null)
+                    for (int i = 0; i < Sentinels.Count; i++)
+                    {
+                        Enabled = Enabled.SetAt(i, true);
+                        Consumeable = Consumeable.SetAt(i, false);
+                    }
             }
 
             public static string NormalizeSentinel(string sentinel)
@@ -1759,19 +1764,13 @@ namespace SpeedyTools
             public void SetSentinelState(string sentinel, SentinelState st, SpeedyParser p)
             {
                 int inx = FindSentinel(sentinel);
-                if (inx < 0)
+                if (inx >= 0)
                 {
-                    Add(sentinel, p);
-                    inx = FindSentinel(sentinel);
+                    Enabled = Enabled.SetAt(inx, st == SentinelState.Active);
+                    Consumeable = Consumeable.SetAt(inx, st == SentinelState.Disabled || st == SentinelState.Consumeable);
                 }
-                SetSentinelState(inx, st, p);
             }
-            
-            public void SetSentinelState(int inx, SentinelState st, SpeedyParser p)
-            {
-                Enabled = Enabled.SetAt(inx, st == SentinelState.Active);
-                Consumeable = Consumeable.SetAt(inx, st == SentinelState.Disabled || st == SentinelState.Consumeable);
-            }
+           
         }
 
         public struct BitArray
@@ -1866,6 +1865,17 @@ namespace SpeedyTools
                 if (!RawData.TryGetValue(varName, out listOfValues))
                     RawData[varName] = listOfValues = new List<string>();
                 listOfValues.Add(value);
+                return true;
+            }
+
+            /// <summary>
+            /// Removes all values
+            /// </summary>
+            /// <returns>always true</returns>
+            public bool Clear()
+            {
+                if (RawData != null)
+                    RawData.Clear();
                 return true;
             }
 
