@@ -129,6 +129,24 @@ namespace SpeedyTools
             public Func<SpeedyParser, Exception> OnMissingEndOfComment = null;
         }
 
+        public enum SentinelState
+        {
+            /// <summary>
+            /// Active sentinel occurring in at least one unconditional test.
+            /// </summary>
+            Active,
+
+            /// <summary>
+            /// Passive sentinel consumed by parser.
+            /// </summary>
+            Consumeable,
+
+            /// <summary>
+            /// Inactive sentinel treated as ordinary text.
+            /// </summary>
+            Disabled
+        }
+
         private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
 
         public ParserOptions Options = DefaultParserOptions;
@@ -762,9 +780,26 @@ namespace SpeedyTools
             return true;
         }
 
+        /// <summary>
+        /// Sets sentinel state. If sentinel does not exist in sentinel's list, it is added to the list.
+        /// </summary>
+        /// <param name="sentinel">sentinel</param>
+        /// <param name="state">sentinel state</param>
+        /// <returns>always true</returns>
+        public bool SetSentinel(string sentinel, SentinelState state)
+        {
+            Sentinels.SetSentinelState(sentinel, state, this);
+            return true;
+        }
+
+        public SentinelState GetSentinelState(string sentinel)
+        {
+            return Sentinels.GetSentinelState(sentinel);
+        }
+
         private void GotoNextMatchingPos()
         {
-            switch (Input.CurrentChar())
+            switch (Input.GotoPrintChar())
             {
                 case '\'':
                     GotoClosingQuote('\'');
@@ -879,9 +914,24 @@ namespace SpeedyTools
         {
             if (Sentinels.Sentinels == null || !Sentinels.BloomFilter.ContainsHash(Input.HashAtCurrentPos()))
                 return false;
-            foreach (string sentinel in Sentinels.Sentinels)
-                if (Test(sentinel, consumeInput: false))
-                    return true;
+            for (int i = 0; i < Sentinels.Sentinels.Count; i++)
+            {
+                string sentinel = Sentinels.Sentinels[i];
+                switch (Sentinels.GetSentinelState(i))
+                {
+                    case SentinelState.Active:
+                        if (Test(sentinel, consumeInput: false))
+                            return true;
+                        break;
+                    case SentinelState.Consumeable:
+                        if (Test(SentinelsList.NormalizeSentinel(sentinel), consumeInput: true))
+                            return false;
+                        break;
+                    case SentinelState.Disabled:
+                    default:
+                        break;
+                }
+            }
             return false;
         }
 
@@ -1496,10 +1546,7 @@ namespace SpeedyTools
 
             public void Add(string sentinel, SpeedyParser p)
             {
-                sentinel = NormalizeSpaces(sentinel);
-                int endInx = sentinel.LastIndexOf("->");
-                if (endInx >= 0)
-                    sentinel = sentinel.Substring(0, endInx).Trim();
+                sentinel = NormalizeSentinel(sentinel);
                 if (Sentinels == null)
                     Sentinels = new List<string>();
                 for (int i = 0; i < Sentinels.Count; i++)
@@ -1508,6 +1555,7 @@ namespace SpeedyTools
                         return;
                     if (Sentinels[i].Length < sentinel.Length)
                     {
+                        InsertSentinelState(i);
                         Sentinels.Insert(i, sentinel);
                         Enabled = Enabled.SetAt(i, true);
                         Consumeable = Consumeable.SetAt(i, false);
@@ -1521,12 +1569,71 @@ namespace SpeedyTools
                 Sentinels.Add(sentinel);
             }
 
+            private void InsertSentinelState(int inx)
+            {
+                for (int i = Sentinels.Count; i > inx; i--)
+                {
+                    Enabled = Enabled.SetAt(i, Enabled.GetAt(i-1));
+                    Consumeable = Consumeable.SetAt(i, Consumeable.GetAt(i-1));
+                }
+            }
+
             public SentinelsList Clone()
             {
                 SentinelsList res = this;
                 res.Enabled = Enabled.Clone();
                 res.Consumeable = Consumeable.Clone();
                 return res;
+            }
+
+            public static string NormalizeSentinel(string sentinel)
+            {
+                sentinel = NormalizeSpaces(sentinel);
+                int endInx = sentinel.LastIndexOf("->");
+                return (endInx >= 0)? sentinel.Substring(0, endInx).Trim() : sentinel;
+            }
+
+            private int FindSentinel(string sentinel)
+            {
+                if (Sentinels == null)
+                    return -1;
+                sentinel = NormalizeSentinel(sentinel);
+                for (int i = 0; i < Sentinels.Count; i++)
+                    if (Sentinels[i] == sentinel)
+                        return i;
+                return -1;
+            }
+
+            public SentinelState GetSentinelState(string sentinel)
+            {
+                return GetSentinelState(FindSentinel(sentinel));
+            }
+
+            public SentinelState GetSentinelState(int inx)
+            {
+                if(inx < 0)
+                    return SentinelState.Disabled;
+                if (Enabled.GetAt(inx))
+                    return SentinelState.Active;
+                else
+                    return Consumeable.GetAt(inx) ? SentinelState.Consumeable : SentinelState.Disabled;
+            }
+
+            public void SetSentinelState(string sentinel, SentinelState st, SpeedyParser p)
+            {
+                int inx = FindSentinel(sentinel);
+                if (inx < 0)
+                {
+                    Add(sentinel, p);
+                    inx = FindSentinel(sentinel);
+                }
+                SetSentinelState(inx, st, p);
+            }
+            
+            public void SetSentinelState(int inx, SentinelState st, SpeedyParser p)
+            {
+                Enabled = Enabled.SetAt(inx, st == SentinelState.Active);
+                Consumeable = Consumeable.SetAt(inx, st == SentinelState.Disabled || st == SentinelState.Consumeable);
             }
         }
 
