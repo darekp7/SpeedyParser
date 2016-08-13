@@ -152,6 +152,7 @@ namespace SpeedyTools
         public ParserOptions Options = DefaultParserOptions;
         protected Func<SpeedyParser, bool> Body = null;
         protected SentinelsList Sentinels;
+        protected int FLoopCounter = 0;
 
         public ParserInput Input;
         public SpeedyParserResult Result = new SpeedyParserResult();
@@ -164,8 +165,9 @@ namespace SpeedyTools
         /// Constructor.
         /// </summary>
         /// <param name="parserBody">expression describing how to parse the input</param>
-        public SpeedyParser(Expression<Func<SpeedyParser, bool>> parserBody)
+        public SpeedyParser(ParserOptions parserOptions, Expression<Func<SpeedyParser, bool>> parserBody)
         {
+            Options = parserOptions ?? DefaultParserOptions;
             var compiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
             Body = compiledExpression.Compile();
         }
@@ -236,6 +238,7 @@ namespace SpeedyTools
         {
             Sentinels.StartMatching();
             Result.Clear();
+            FLoopCounter = 0;
         }
 
         protected virtual Expression CompileExpression(Expression expr)
@@ -461,7 +464,7 @@ namespace SpeedyTools
                         }
                         break;
                 }
-            if (pars.Length > 0 && expr.Arguments.Count == pars.Length && expr.Method.Name != "SetOptions")
+            if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
             {
                 Expression[] args = new Expression[expr.Arguments.Count];
                 bool diff = false;
@@ -572,18 +575,6 @@ namespace SpeedyTools
             {
                 throw new ECompilationError(string.Format("Cannot evaluate parameter {0} of function {1}", paramInx + 1, callingFunction));
             }
-        }
-
-        /// <summary>
-        /// Setting the parser's options.
-        /// </summary>
-        /// <param name="opt">parser options.</param>
-        /// <returns>true.</returns>
-        public bool SetOptions(ParserOptions opt)
-        {
-            Options = opt ?? DefaultParserOptions;
-            Input.NotifyCommentsChanged();
-            return true;
         }
 
         /// <summary>
@@ -741,12 +732,24 @@ namespace SpeedyTools
             return false;
         }
 
+        /// <summary>
+        /// Zero-based loop counter for WhileXXX loops
+        /// </summary>
+        public int LoopCounter
+        {
+            get
+            {
+                return FLoopCounter;
+            }
+        }
+
         protected bool While_implementation(string str, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
+            int saveCounter = FLoopCounter;
             try
             {
-                while (Test(str, consumeInput: true))
+                for (FLoopCounter = 0; Test(str, consumeInput: true); FLoopCounter++)
                     if (body != null)
                         foreach (var f in body)
                             if (!f())
@@ -756,6 +759,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
+                FLoopCounter = saveCounter;
             }
         }
 
@@ -773,9 +777,10 @@ namespace SpeedyTools
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
+            int saveCounter = FLoopCounter;
             try
             {
-                while (If_bool_TestCondition_Safe(condition))
+                for (FLoopCounter = 0; If_bool_TestCondition_Safe(condition); FLoopCounter++)
                     if (body != null)
                         foreach (var f in body)
                             if (!f())
@@ -785,6 +790,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
+                FLoopCounter = saveCounter;
             }
         }
 
@@ -803,9 +809,10 @@ namespace SpeedyTools
         protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
+            int saveCounter = FLoopCounter;
             try
             {
-                while (TestOneOf(sentinels, consumeInput: true))
+                for (FLoopCounter = 0; TestOneOf(sentinels, consumeInput: true); FLoopCounter++)
                     if (body != null)
                         foreach (var f in body)
                             if (!f())
@@ -815,6 +822,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
+                FLoopCounter = saveCounter;
             }
         }
 
@@ -833,9 +841,10 @@ namespace SpeedyTools
         protected bool WhileAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
+            int saveCounter = FLoopCounter;
             try
             {
-                while (TestAtLeastOneOf(sentinels))
+                for (FLoopCounter = 0; TestAtLeastOneOf(sentinels); FLoopCounter++)
                     if (body != null)
                         foreach (var f in body)
                             if (!f())
@@ -845,6 +854,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
+                FLoopCounter = saveCounter;
             }
         }
 
@@ -883,7 +893,7 @@ namespace SpeedyTools
         /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
         ///                       the value is not stored in Result</param>
         /// <returns>true</returns>
-        public bool String(string varName)
+        public bool Span(string varName)
         {
             Input.GotoPrintChar();
             bool recording = (varName = varName ?? "").Trim() != "" && varName[0] != '_';
@@ -911,7 +921,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="consumingAction">action taking consumed input as a parameter</param>
         /// <returns>method returns the value returned by consumingAction</returns>
-        public bool String(Func<string, bool> consumingAction)
+        public bool Span(Func<string, bool> consumingAction)
         {
             Input.GotoPrintChar();
             bool recording = consumingAction != null;
@@ -1235,13 +1245,20 @@ namespace SpeedyTools
             return str;
         }
 
-        protected int Hash(string str, int startPos)
+        protected int HashChar(char c)
         {
+            return (int)(Options.IsCaseSensitive ? c : char.ToUpper(c));
+        }
+
+        protected int HashString(string str, int startPos)
+        {
+            if (str == null || startPos >= str.Length)
+                return 0;
             if (!IsIdentChar(str[startPos]))
-                return (int)str[startPos];
+                return (int)(Options.IsCaseSensitive ? str[startPos] : char.ToUpper(str[startPos]));
             int hash = 0;
             for (int i = 0; i < 3 && startPos + i < str.Length && IsIdentChar(str[startPos + i]); i++)
-                hash = (hash << 2) ^ (int)str[startPos + i];
+                hash = (hash << 2) ^ (int)(Options.IsCaseSensitive ? str[startPos + i] : char.ToUpper(str[startPos + i]));
             return hash;
         }
 
@@ -1530,7 +1547,7 @@ namespace SpeedyTools
 
             private Tuple<string, string> FindMatchingComment(char c)
             {
-                if (!CommentsFilter.Contains(c))
+                if (!CommentsFilter.ContainsHash(Owner.HashChar(c)))
                     return null;
                 foreach (var comm in Options.Comments)
                     if (comm.Item1 != null && comm.Item1.Length > 0 && TestCommentSubstring(comm.Item1))
@@ -1544,7 +1561,7 @@ namespace SpeedyTools
                 if(Options.Comments != null)
                     foreach(var comm in Options.Comments)
                         if(comm.Item1 != null && comm.Item1.Length > 0)
-                            cf = cf.Add(comm.Item1[0]);
+                            cf = cf.AddHash(Owner.HashChar(comm.Item1[0]));
                 CommentsFilter = cf;
             }
 
@@ -1564,7 +1581,7 @@ namespace SpeedyTools
             public int HashAtCurrentPos()
             {
                 int i = (int)(FCurrentPos - FCurrentLineStart);
-                return Owner.Hash(FCurrentLine, i);
+                return Owner.HashString(FCurrentLine, i);
             }
 
             public override string ToString() // for debugging
@@ -1642,24 +1659,9 @@ namespace SpeedyTools
                 return BitArray == 0;
             }
 
-            public SimplifiedBloomFilter Add(char c)
-            {
-                return AddHash((int)c);
-            }
-
-            public SimplifiedBloomFilter Add(string str, int startPos, SpeedyParser p)
-            {
-                return AddHash(p.Hash(str, startPos));
-            }
-
-            private SimplifiedBloomFilter AddHash(int i)
+            public SimplifiedBloomFilter AddHash(int i)
             {
                 return new SimplifiedBloomFilter(BitArray | ToBit(i));
-            }
-
-            public bool Contains(char c)
-            {
-                return ContainsHash((int)c);
             }
 
             public bool ContainsHash(int hash)
@@ -1669,7 +1671,7 @@ namespace SpeedyTools
 
             private static ulong ToBit(int i)
             {
-                return 1UL << ((i < 0) ? -i : i) % 64;
+                return 1UL << (((i < 0) ? -i : i) % 61); // 61 is a prime number (recommended)
             }
 
             public SimplifiedBloomFilter UnionWith(SimplifiedBloomFilter sbf)
@@ -1702,11 +1704,11 @@ namespace SpeedyTools
                     if (Sentinels[i].Length < sentinel.Length)
                     {
                         Sentinels.Insert(i, sentinel);
-                        BloomFilter = BloomFilter.Add(sentinel, 0, p);
+                        BloomFilter = BloomFilter.AddHash(p.HashString(sentinel, 0));
                         return;
                     }
                 }
-                BloomFilter = BloomFilter.Add(sentinel, 0, p);
+                BloomFilter = BloomFilter.AddHash(p.HashString(sentinel, 0));
                 Sentinels.Add(sentinel);
             }
 
