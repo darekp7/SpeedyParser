@@ -153,6 +153,7 @@ namespace SpeedyTools
         protected Func<SpeedyParser, bool> Body = null;
         protected SentinelsList Sentinels;
         protected int FLoopCounter = 0;
+        protected bool FIfTestSucceeded = false;
 
         public ParserInput Input;
         public SpeedyParserResult Result = new SpeedyParserResult();
@@ -207,7 +208,7 @@ namespace SpeedyTools
             StartMatching();
             int i_ln = 0;
             Func<string> readLine = null;
-            if(inputLines != null && inputLines.Length > 0)
+            if (inputLines != null && inputLines.Length > 0)
                 readLine = () =>
                     (inputLines != null && i_ln < inputLines.Length) ? inputLines[i_ln++] ?? "" : null;
 
@@ -239,6 +240,7 @@ namespace SpeedyTools
             Sentinels.StartMatching();
             Result.Clear();
             FLoopCounter = 0;
+            FIfTestSucceeded = false;
         }
 
         protected virtual Expression CompileExpression(Expression expr)
@@ -421,12 +423,15 @@ namespace SpeedyTools
                 switch (expr.Method.Name)
                 {
                     case "If":
+                    case "ElseIf":
                     case "While":
                     case "IfOneOf":
+                    case "ElseIfOneOf":
                     case "WhileOneOf":
                     case "IfAtLeastOneOf":
+                    case "ElseIfAtLeastOneOf":
                     case "WhileAtLeastOneOf":
-                        if ((expr.Method.Name == "If" || expr.Method.Name == "While")
+                        if ((expr.Method.Name == "If" || expr.Method.Name == "ElseIf" || expr.Method.Name == "While")
                             && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
                         {
                             Expression first_parameter = Expression.Lambda(CompileExpression(expr.Arguments[0]));
@@ -446,6 +451,7 @@ namespace SpeedyTools
                             return Expression.Call(expr.Object, GetImplementationMethod(expr.Object.Type, expr.Method.Name), args);
                         }
                         break;
+                    case "Else":
                     case "Do":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
@@ -532,7 +538,7 @@ namespace SpeedyTools
         }
 
         protected Expression[] ConvertArgumentsToLambdas(
-            System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments, 
+            System.Collections.ObjectModel.ReadOnlyCollection<Expression> arguments,
             int startInx, Expression first_parameter)
         {
             Expression[] res = new Expression[arguments.Count];
@@ -594,18 +600,51 @@ namespace SpeedyTools
             SentinelsList saveSent = Sentinels.Clone();
             try
             {
-                if (!Test(str, consumeInput: true))
+                if (!(FIfTestSucceeded = Test(str, consumeInput: true)))
                     return true;
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-                return true;
+                return ExecuteBody(body);
             }
             finally
             {
                 Sentinels = saveSent;
             }
+        }
+
+        protected bool ExecuteBody(Func<bool>[] body)
+        {
+            if (body != null)
+            {
+                bool saveSucc = FIfTestSucceeded;
+                try
+                {
+                    FIfTestSucceeded = false;
+                    foreach (var f in body)
+                        if (!f())
+                            return false;
+                }
+                finally
+                {
+                    FIfTestSucceeded = saveSucc;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// If bodies of preceding If's and ElseIf's were not executed, ElseIf works like 
+        /// an ordinary If. Otherwise ElseIf immediately returns true.
+        /// </summary>
+        /// <param name="sentinel">sentinel,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool ElseIf(string sentinel, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool ElseIf_implementation(string str, Func<bool>[] body)
+        {
+            return FIfTestSucceeded || If_implementation(str, body);
         }
 
         /// <summary>
@@ -625,13 +664,9 @@ namespace SpeedyTools
             SentinelsList saveSent = Sentinels.Clone();
             try
             {
-                if (!If_bool_TestCondition_Safe(condition))
+                if (!(FIfTestSucceeded = If_bool_TestCondition_Safe(condition)))
                     return true;
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-                return true;
+                return ExecuteBody(body);
             }
             finally
             {
@@ -659,6 +694,23 @@ namespace SpeedyTools
         }
 
         /// <summary>
+        /// If bodies of preceding If's and ElseIf's were not executed, ElseIf works like 
+        /// an ordinary If. Otherwise ElseIf immediately returns true.
+        /// </summary>
+        /// <param name="condition">condition,</param>
+        /// <param name="body">expression(s) to be evaluated.</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool ElseIf(bool condition, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool ElseIf_bool_implementation(Func<bool> condition, Func<bool>[] body)
+        {
+            return FIfTestSucceeded || If_bool_implementation(condition, body);
+        }
+
+        /// <summary>
         /// If there is one of sentinels at the current input positon, the parser consumes the sentinel and evaluates
         /// body parameters. Otherwise returns true.
         /// </summary>
@@ -675,18 +727,31 @@ namespace SpeedyTools
             SentinelsList saveSent = Sentinels.Clone();
             try
             {
-                if (!TestOneOf(sentinels, consumeInput: true))
+                if (!(FIfTestSucceeded = TestOneOf(sentinels, consumeInput: true)))
                     return true;
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-                return true;
+                return ExecuteBody(body);
             }
             finally
             {
                 Sentinels = saveSent;
             }
+        }
+
+        /// <summary>
+        /// If bodies of preceding If's and ElseIf's were not executed, ElseIf works like 
+        /// an ordinary If. Otherwise ElseIf immediately returns true.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinel is met.</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool ElseIfOneOf(string[] sentinels, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool ElseIfOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        {
+            return FIfTestSucceeded || IfOneOf_implementation(sentinels, body);
         }
 
         /// <summary>
@@ -706,17 +771,57 @@ namespace SpeedyTools
             SentinelsList saveSent = Sentinels.Clone();
             try
             {
-                if (!TestAtLeastOneOf(sentinels))
+                if (!(FIfTestSucceeded = TestAtLeastOneOf(sentinels)))
                     return true;
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-                return true;
+                return ExecuteBody(body);
             }
             finally
             {
                 Sentinels = saveSent;
+            }
+        }
+
+        /// <summary>
+        /// If bodies of preceding If's and ElseIf's were not executed, ElseIf works like 
+        /// an ordinary If. Otherwise ElseIf immediately returns true.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels,</param>
+        /// <param name="body">expression(s) to be evaluated if sentinels are met.</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool ElseIfAtLeastOneOf(string[] sentinels, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool ElseIfAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
+        {
+            return FIfTestSucceeded || IfAtLeastOneOf_implementation(sentinels, body);
+        }
+
+        /// <summary>
+        /// If bodies of preceding If's and ElseIf's were not executed, Else executes its own body.
+        /// Otherwise Else immediately returns true.
+        /// </summary>
+        /// <param name="body">expression(s) to be evaluated</param>
+        /// <returns>false if any evaluated body expression returned false, otherwise true.</returns>
+        public bool Else(params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool Else_implementation(Func<bool>[] body)
+        {
+            return FIfTestSucceeded || Do_implementation(body);
+        }
+
+        /// <summary>
+        /// Zero-based loop counter for WhileXXX loops
+        /// </summary>
+        public int LoopCounter
+        {
+            get
+            {
+                return FLoopCounter;
             }
         }
 
@@ -732,17 +837,6 @@ namespace SpeedyTools
             return false;
         }
 
-        /// <summary>
-        /// Zero-based loop counter for WhileXXX loops
-        /// </summary>
-        public int LoopCounter
-        {
-            get
-            {
-                return FLoopCounter;
-            }
-        }
-
         protected bool While_implementation(string str, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
@@ -750,10 +844,8 @@ namespace SpeedyTools
             try
             {
                 for (FLoopCounter = 0; Test(str, consumeInput: true); FLoopCounter++)
-                    if (body != null)
-                        foreach (var f in body)
-                            if (!f())
-                                return false;
+                    if (!ExecuteBody(body))
+                        return false;
                 return true;
             }
             finally
@@ -781,10 +873,8 @@ namespace SpeedyTools
             try
             {
                 for (FLoopCounter = 0; If_bool_TestCondition_Safe(condition); FLoopCounter++)
-                    if (body != null)
-                        foreach (var f in body)
-                            if (!f())
-                                return false;
+                    if (!ExecuteBody(body))
+                        return false;
                 return true;
             }
             finally
@@ -813,10 +903,8 @@ namespace SpeedyTools
             try
             {
                 for (FLoopCounter = 0; TestOneOf(sentinels, consumeInput: true); FLoopCounter++)
-                    if (body != null)
-                        foreach (var f in body)
-                            if (!f())
-                                return false;
+                    if (!ExecuteBody(body))
+                        return false;
                 return true;
             }
             finally
@@ -845,10 +933,8 @@ namespace SpeedyTools
             try
             {
                 for (FLoopCounter = 0; TestAtLeastOneOf(sentinels); FLoopCounter++)
-                    if (body != null)
-                        foreach (var f in body)
-                            if (!f())
-                                return false;
+                    if (!ExecuteBody(body))
+                        return false;
                 return true;
             }
             finally
@@ -875,11 +961,7 @@ namespace SpeedyTools
             SentinelsList saveSent = Sentinels.Clone();
             try
             {
-                if (body != null)
-                    foreach (var f in body)
-                        if (!f())
-                            return false;
-                return true;
+                return ExecuteBody(body);
             }
             finally
             {
@@ -909,7 +991,7 @@ namespace SpeedyTools
             }
             finally
             {
-                if(recording)
+                if (recording)
                     Input.EndRecord();
             }
             return true;
@@ -1226,7 +1308,7 @@ namespace SpeedyTools
             if ((str = (str ?? "").Trim()) == "")
                 return str;
             bool needs_normalization = false;
-            for(int i=1; i < str.Length; i++)
+            for (int i = 1; i < str.Length; i++)
                 if (char.IsWhiteSpace(str[i]) && (str[i] != ' ' || char.IsWhiteSpace(str[i - 1])))
                 {
                     needs_normalization = true;
@@ -1558,9 +1640,9 @@ namespace SpeedyTools
             public void NotifyCommentsChanged()
             {
                 SimplifiedBloomFilter cf = new SimplifiedBloomFilter(0);
-                if(Options.Comments != null)
-                    foreach(var comm in Options.Comments)
-                        if(comm.Item1 != null && comm.Item1.Length > 0)
+                if (Options.Comments != null)
+                    foreach (var comm in Options.Comments)
+                        if (comm.Item1 != null && comm.Item1.Length > 0)
                             cf = cf.AddHash(Owner.HashChar(comm.Item1[0]));
                 CommentsFilter = cf;
             }
@@ -1570,7 +1652,7 @@ namespace SpeedyTools
                 StringBuilder res = new StringBuilder();
                 for (long i = startPos; i < endPos; i++)
                 {
-                    char c = (FindCommentInx(i) < 0)? GetCharAt(i) : ' ';
+                    char c = (FindCommentInx(i) < 0) ? GetCharAt(i) : ' ';
                     if (c == '\0')
                         break;
                     res.Append(c);
@@ -1608,7 +1690,7 @@ namespace SpeedyTools
 
             private int FindCommentInx(long pos)
             {
-                if(FCommentsList == null)
+                if (FCommentsList == null)
                     return -1;
                 int a = 0;
                 int b = FCommentsList.Count - 1;
@@ -1734,7 +1816,7 @@ namespace SpeedyTools
             {
                 sentinel = NormalizeSpaces(sentinel);
                 int endInx = sentinel.LastIndexOf("->");
-                return (endInx >= 0)? sentinel.Substring(0, endInx).Trim() : sentinel;
+                return (endInx >= 0) ? sentinel.Substring(0, endInx).Trim() : sentinel;
             }
 
             private int FindSentinel(string sentinel)
@@ -1755,7 +1837,7 @@ namespace SpeedyTools
 
             public SentinelState GetSentinelState(int inx)
             {
-                if(inx < 0)
+                if (inx < 0)
                     return SentinelState.Disabled;
                 if (Enabled.GetAt(inx))
                     return SentinelState.Active;
@@ -1772,7 +1854,7 @@ namespace SpeedyTools
                     Consumeable = Consumeable.SetAt(inx, st == SentinelState.Disabled || st == SentinelState.Consumeable);
                 }
             }
-           
+
         }
 
         public struct BitArray
@@ -1825,16 +1907,16 @@ namespace SpeedyTools
                 else if (i < 64)
                     res.Bits64 = SetBit(res.Bits64, i, b);
                 else if (i < 128)
-                    res.Bits128 = SetBit(res.Bits128, i-64, b);
+                    res.Bits128 = SetBit(res.Bits128, i - 64, b);
                 else
                 {
                     i -= 128;
                     int inx = i / 64;
-                    int n1 = (MoreBits == null)? 0 : MoreBits.Length;
-                    int n = Math.Max(inx+1, n1);
+                    int n1 = (MoreBits == null) ? 0 : MoreBits.Length;
+                    int n = Math.Max(inx + 1, n1);
                     res.MoreBits = new ulong[n];
-                    for(int ii=0; ii < n; ii++)
-                        res.MoreBits[ii] = (ii < n1)? MoreBits[ii] : 0UL;
+                    for (int ii = 0; ii < n; ii++)
+                        res.MoreBits[ii] = (ii < n1) ? MoreBits[ii] : 0UL;
                     res.MoreBits[inx] = SetBit(res.MoreBits[inx], i % 64, b);
                 }
                 return res;
@@ -1929,7 +2011,7 @@ namespace SpeedyTools
             {
                 get
                 {
-                    if(RawData == null)
+                    if (RawData == null)
                         return 0;
                     int res = 0;
                     foreach (var pair in RawData)
