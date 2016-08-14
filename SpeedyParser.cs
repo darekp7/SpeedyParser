@@ -152,7 +152,8 @@ namespace SpeedyTools
         public ParserOptions Options = DefaultParserOptions;
         protected Func<SpeedyParser, bool> Body = null;
         protected SentinelsList Sentinels;
-        protected int FLoopCounter = 0;
+        protected long FLoopCounter = 0;
+        protected long FLastLoopCounter = 0;
         protected bool FIfTestSucceeded = false;
 
         public ParserInput Input;
@@ -240,6 +241,7 @@ namespace SpeedyTools
             Sentinels.StartMatching();
             Result.Clear();
             FLoopCounter = 0;
+            FLastLoopCounter = 0;
             FIfTestSucceeded = false;
         }
 
@@ -462,6 +464,7 @@ namespace SpeedyTools
                     case "Test":
                     case "TestOneOf":
                     case "TestAtLeastOneOf":
+                    case "TestSomeOf":
                     case "SetSentinel":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length && (pars[0].Name == "sentinel" || pars[0].Name == "sentinels"))
                         {
@@ -817,11 +820,22 @@ namespace SpeedyTools
         /// <summary>
         /// Zero-based loop counter for WhileXXX loops
         /// </summary>
-        public int LoopCounter
+        public long LoopCounter
         {
             get
             {
                 return FLoopCounter;
+            }
+        }
+
+        /// <summary>
+        /// Number of iterations for the last executed loop
+        /// </summary>
+        public long LastLoopCounter
+        {
+            get
+            {
+                return FLastLoopCounter;
             }
         }
 
@@ -837,13 +851,23 @@ namespace SpeedyTools
             return false;
         }
 
+        protected void StartCounter()
+        {
+            FLoopCounter = FLastLoopCounter = 0;
+        }
+
+        protected long IncCounter()
+        {
+            return FLoopCounter = FLastLoopCounter = (FLoopCounter == long.MaxValue) ? 0 : FLoopCounter + 1;
+        }
+
         protected bool While_implementation(string str, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            int saveCounter = FLoopCounter;
+            long saveCounter = FLoopCounter;
             try
             {
-                for (FLoopCounter = 0; Test(str, consumeInput: true); FLoopCounter++)
+                for (StartCounter(); Test(str, consumeInput: true); IncCounter())
                     if (!ExecuteBody(body))
                         return false;
                 return true;
@@ -869,10 +893,10 @@ namespace SpeedyTools
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            int saveCounter = FLoopCounter;
+            long saveCounter = FLoopCounter;
             try
             {
-                for (FLoopCounter = 0; If_bool_TestCondition_Safe(condition); FLoopCounter++)
+                for (StartCounter(); If_bool_TestCondition_Safe(condition); IncCounter())
                     if (!ExecuteBody(body))
                         return false;
                 return true;
@@ -899,10 +923,10 @@ namespace SpeedyTools
         protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            int saveCounter = FLoopCounter;
+            long saveCounter = FLoopCounter;
             try
             {
-                for (FLoopCounter = 0; TestOneOf(sentinels, consumeInput: true); FLoopCounter++)
+                for (StartCounter(); TestOneOf(sentinels, consumeInput: true); IncCounter())
                     if (!ExecuteBody(body))
                         return false;
                 return true;
@@ -929,10 +953,10 @@ namespace SpeedyTools
         protected bool WhileAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            int saveCounter = FLoopCounter;
+            long saveCounter = FLoopCounter;
             try
             {
-                for (FLoopCounter = 0; TestAtLeastOneOf(sentinels); FLoopCounter++)
+                for (StartCounter(); TestAtLeastOneOf(sentinels); IncCounter())
                     if (!ExecuteBody(body))
                         return false;
                 return true;
@@ -1219,7 +1243,8 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Returns true if there is nonepmty sequence of sentinels (one or more) at the input starting from current input's position.
+        /// Returns true if there is nonepmty sequence of sentinels (one or more) at the input 
+        /// starting from current input's position.
         /// </summary>
         /// <param name="sentinels">list of sentinels to be tested,</param>
         /// <returns>true if one of sentinels is met, otherwise false.</returns>
@@ -1227,6 +1252,19 @@ namespace SpeedyTools
         {
             if (!TestOneOf(sentinels, consumeInput: true))
                 return false;
+            while (TestOneOf(sentinels, consumeInput: true))
+                ;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true if there is - possibly empty - sequence of sentinels (zero or more) at the input 
+        /// starting from current input's position.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels to be tested,</param>
+        /// <returns>always true.</returns>
+        public bool TestSomeOf(string[] sentinels)
+        {
             while (TestOneOf(sentinels, consumeInput: true))
                 ;
             return true;
