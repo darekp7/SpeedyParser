@@ -152,7 +152,7 @@ namespace SpeedyTools
         public ParserOptions Options = DefaultParserOptions;
         protected Func<SpeedyParser, bool> Body = null;
         protected SentinelsList Sentinels;
-        protected long FLoopCounter = 0;
+        protected long FCounter = 0;
         protected long FLastLoopCounter = 0;
         protected bool FIfTestSucceeded = false;
 
@@ -240,7 +240,7 @@ namespace SpeedyTools
         {
             Sentinels.StartMatching();
             Result.Clear();
-            FLoopCounter = 0;
+            FCounter = 0;
             FLastLoopCounter = 0;
             FIfTestSucceeded = false;
         }
@@ -455,6 +455,8 @@ namespace SpeedyTools
                         break;
                     case "Else":
                     case "Do":
+                    case "Throw":
+                    case "ThrowIf":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
@@ -820,16 +822,16 @@ namespace SpeedyTools
         /// <summary>
         /// Zero-based loop counter for WhileXXX loops
         /// </summary>
-        public long LoopCounter
+        public long Counter
         {
             get
             {
-                return FLoopCounter;
+                return FCounter;
             }
         }
 
         /// <summary>
-        /// Number of iterations for the last executed loop
+        /// Number of iterations for the recent loop
         /// </summary>
         public long LastLoopCounter
         {
@@ -853,18 +855,18 @@ namespace SpeedyTools
 
         protected void StartCounter()
         {
-            FLoopCounter = FLastLoopCounter = 0;
+            FCounter = FLastLoopCounter = 0;
         }
 
         protected long IncCounter()
         {
-            return FLoopCounter = FLastLoopCounter = (FLoopCounter == long.MaxValue) ? 0 : FLoopCounter + 1;
+            return FCounter = FLastLoopCounter = (FCounter == long.MaxValue) ? 0 : FCounter + 1;
         }
 
         protected bool While_implementation(string str, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            long saveCounter = FLoopCounter;
+            long saveCounter = FCounter;
             try
             {
                 for (StartCounter(); Test(str, consumeInput: true); IncCounter())
@@ -875,7 +877,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
-                FLoopCounter = saveCounter;
+                FCounter = saveCounter;
             }
         }
 
@@ -893,7 +895,7 @@ namespace SpeedyTools
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            long saveCounter = FLoopCounter;
+            long saveCounter = FCounter;
             try
             {
                 for (StartCounter(); If_bool_TestCondition_Safe(condition); IncCounter())
@@ -904,7 +906,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
-                FLoopCounter = saveCounter;
+                FCounter = saveCounter;
             }
         }
 
@@ -923,7 +925,7 @@ namespace SpeedyTools
         protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            long saveCounter = FLoopCounter;
+            long saveCounter = FCounter;
             try
             {
                 for (StartCounter(); TestOneOf(sentinels, consumeInput: true); IncCounter())
@@ -934,7 +936,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
-                FLoopCounter = saveCounter;
+                FCounter = saveCounter;
             }
         }
 
@@ -953,7 +955,7 @@ namespace SpeedyTools
         protected bool WhileAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
             SentinelsList saveSent = Sentinels.Clone();
-            long saveCounter = FLoopCounter;
+            long saveCounter = FCounter;
             try
             {
                 for (StartCounter(); TestAtLeastOneOf(sentinels); IncCounter())
@@ -964,7 +966,7 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
-                FLoopCounter = saveCounter;
+                FCounter = saveCounter;
             }
         }
 
@@ -991,6 +993,40 @@ namespace SpeedyTools
             {
                 Sentinels = saveSent;
             }
+        }
+
+        /// <summary>
+        /// Throws an exception.
+        /// </summary>
+        /// <param name="body">exception to be thrown.</param>
+        /// <returns>always true.</returns>
+        public bool Throw(Exception exception)
+        {
+            return false;
+        }
+
+        protected bool Throw_implementation(Func<Exception> exception)
+        {
+            throw exception();
+        }
+
+        /// <summary>
+        /// If condition passed in first parameter is true, the method throws an exception passed in second parameter. 
+        /// Otherwise returns true.
+        /// </summary>
+        /// <param name="condition">condition</param>
+        /// <param name="body">exception to be thrown.</param>
+        /// <returns>true.</returns>
+        public bool ThrowIf(bool condition, Exception exception)
+        {
+            return false;
+        }
+
+        protected bool ThrowIf_implementation(Func<bool> condition, Func<Exception> exception)
+        {
+            if (condition())
+                throw exception();
+            return true;
         }
 
         /// <summary>
