@@ -155,9 +155,12 @@ namespace SpeedyTools
         protected long FCounter = 0;
         protected long FLastLoopCounter = 0;
         protected bool FIfTestSucceeded = false;
+        protected bool FSucceeded = false;
 
         public ParserInput Input;
         public SpeedyParserResult Result = new SpeedyParserResult();
+        protected System.Collections.Concurrent.BlockingCollection<SpeedyParserResult> OutputCollection = null;
+        protected List<SpeedyParserResult> OutputList = null;
 
         protected SpeedyParser()
         {
@@ -188,43 +191,59 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Method parses the input. If parsing fails, method returns false, otherwise returns true.
+        /// Returns information if last act of parsing succeeded
         /// </summary>
-        /// <param name="input">string to be parsed.</param>
-        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatch(string input)
+        public bool Succeeded
         {
-            StartMatching();
-            Input = new ParserInput(this, input, null, 0);
-            return Body(this);
+            get
+            {
+                return FSucceeded;
+            }
         }
 
         /// <summary>
-        /// Method parses the input. If parsing fails, method returns false, otherwise returns true.
+        /// The method parses the input. If parsing fails, the method returns false, otherwise returns true.
+        /// The result of parsing is returned in Result or handled by user-defined function(s).
+        /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
+        /// (and typically will do) only the last yielded set of variables.
+        /// </summary>
+        /// <param name="input">string to be parsed.</param>
+        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        public bool TryMatchSingle(string input)
+        {
+            StartMatching();
+            Input = new ParserInput(this, input, null, 0);
+            return FSucceeded = Body(this);
+        }
+
+        /// <summary>
+        /// The method parses the input. If parsing fails, the method returns false, otherwise returns true.
+        /// The result of parsing is returned in Result or handled by user-defined function(s).
+        /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
+        /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">lines to be parsed</param>
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatch(string[] inputLines)
+        public bool TryMatchSingle(string[] inputLines)
         {
-            StartMatching();
             int i_ln = 0;
             Func<string> readLine = null;
             if (inputLines != null && inputLines.Length > 0)
                 readLine = () =>
                     (inputLines != null && i_ln < inputLines.Length) ? inputLines[i_ln++] ?? "" : null;
-
-            Input = new ParserInput(this, "", readLine, 0);
-            return Body(this);
+            return TryMatchSingle(readLine);
         }
 
         /// <summary>
-        /// Method parses the input. If parsing fails, method returns false, otherwise returns true.
+        /// The method parses the input. If parsing fails, the method returns false, otherwise returns true.
+        /// The result of parsing is returned in Result or handled by user-defined function(s).
+        /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
+        /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">lines to be parsed</param>
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatch(IEnumerable<string> lines)
+        public bool TryMatchSingle(IEnumerable<string> lines)
         {
-            StartMatching();
             Func<string> readLine = null;
             if (lines != null)
             {
@@ -232,17 +251,103 @@ namespace SpeedyTools
                 readLine = () =>
                     (enumerator.MoveNext()) ? enumerator.Current ?? "" : null;
             }
-            Input = new ParserInput(this, "", readLine, 0);
-            return Body(this);
+            return TryMatchSingle(readLine);
         }
 
-        private void StartMatching()
+        /// <summary>
+        /// The method parses the input. If parsing fails, the method returns false, otherwise returns true.
+        /// The result of parsing is returned in Result or handled by user-defined function(s).
+        /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
+        /// (and typically will do) only the last yielded set of variables.
+        /// </summary>
+        /// <param name="input">lines to be parsed</param>
+        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        public bool TryMatchSingle(Func<string> readLine)
+        {
+            StartMatching();
+            Input = new ParserInput(this, "", readLine, 0);
+            return FSucceeded = Body(this);
+        }
+
+        /// <summary>
+        /// The enumerator, which parses the input and returns all results (i.e. returns all collections stored in the
+        /// Result class member). 
+        /// If parsing fails, method stores false in Succeeded property, otherwise stores true.
+        /// </summary>
+        /// <param name="input">lines to be parsed</param>
+        /// <param name="succeeded">true if parser expression returned true, otherwise false</param>
+        /// <returns>the enumerator</returns>
+        public IEnumerable<SpeedyParserResult> TryMatchLoop(IEnumerable<string> lines)
+        {
+            Func<string> readLine = null;
+            if (lines != null)
+            {
+                IEnumerator<string> enumerator = lines.GetEnumerator();
+                readLine = () =>
+                    (enumerator.MoveNext()) ? enumerator.Current ?? "" : null;
+            }
+
+            return TryMatchLoop(readLine);
+        }
+
+        /// <summary>
+        /// The enumerator, which parses the input and returns all results (i.e. returns all collections stored in the
+        /// Result class member). 
+        /// If parsing fails, method stores false in Succeeded property, otherwise stores true.
+        /// </summary>
+        /// <param name="input">input string</param>
+        /// <returns>the enumerator</returns>
+        public IEnumerable<SpeedyParserResult> TryMatchLoop(string input)
+        {
+            StartMatching();
+            Input = new ParserInput(this, input, null, 0);
+            FSucceeded = Body(this);
+            if (FSucceeded)
+                if (OutputList != null)
+                    foreach (var item in OutputList)
+                        yield return item;
+                else
+                    yield return Result;
+        }
+
+        /// <summary>
+        /// The enumerator, which parses the input and returns all results (i.e. returns all collections stored in the
+        /// Result class member). 
+        /// If parsing fails, method stores false in Succeeded property, otherwise stores true.
+        /// </summary>
+        /// <param name="readLine">function returning subsequent line(s)</param>
+        /// <returns>the enumerator</returns>
+        public IEnumerable<SpeedyParserResult> TryMatchLoop(Func<string> readLine)
+        {
+            // https://msdn.microsoft.com/en-us/library/dd267312.aspx
+            // http://www.codethinked.com/blockingcollection-and-iproducerconsumercollection
+
+            StartMatching();
+            using (var bc = new System.Collections.Concurrent.BlockingCollection<SpeedyParserResult>())
+            {
+                OutputCollection = bc;
+                using (var task = System.Threading.Tasks.Task.Factory.StartNew(() =>
+                {
+                    Input = new ParserInput(this, "", readLine, 0);
+                    FSucceeded = Body(this);
+                    bc.CompleteAdding();
+                }))
+                {
+                    foreach (var item in bc.GetConsumingEnumerable())
+                        yield return item;
+                    System.Threading.Tasks.Task.WaitAll(task);
+                }
+            }
+        }
+
+        protected void StartMatching()
         {
             Sentinels.StartMatching();
             Result.Clear();
             FCounter = 0;
             FLastLoopCounter = 0;
             FIfTestSucceeded = false;
+            FSucceeded = false;
         }
 
         protected virtual Expression CompileExpression(Expression expr)
@@ -971,7 +1076,7 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Method evaluates its own parameters starting from the first to the last. Returns true if all parameters
+        /// The method evaluates its own parameters starting from the first to the last. Returns true if all parameters
         /// return true, otherwise stops evaluation and returns false. So, this method doeas exactly the same 
         /// operations as the && operator.
         /// </summary>
@@ -2000,12 +2105,12 @@ namespace SpeedyTools
         /// <summary>
         /// Result of parsing
         /// </summary>
-        public class SpeedyParserResult
+        public struct SpeedyParserResult
         {
             /// <summary>
             /// List of variables and values used internally by the class 
             /// </summary>
-            public Dictionary<string, List<string>> RawData = null;
+            public Dictionary<string, List<string>> RawData;
 
             /// <summary>
             /// Appends value to variable to the list of values for specified variable
