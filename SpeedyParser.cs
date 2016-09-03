@@ -209,7 +209,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="input">string to be parsed.</param>
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatchSingle(string input)
+        public bool TryMatch(string input)
         {
             StartMatching();
             Input = new ParserInput(this, input, null, 0);
@@ -224,14 +224,14 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="input">lines to be parsed</param>
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatchSingle(string[] inputLines)
+        public bool TryMatch(string[] inputLines)
         {
             int i_ln = 0;
             Func<string> readLine = null;
             if (inputLines != null && inputLines.Length > 0)
                 readLine = () =>
                     (inputLines != null && i_ln < inputLines.Length) ? inputLines[i_ln++] ?? "" : null;
-            return TryMatchSingle(readLine);
+            return TryMatch(readLine);
         }
 
         /// <summary>
@@ -242,7 +242,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="input">lines to be parsed</param>
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatchSingle(IEnumerable<string> lines)
+        public bool TryMatch(IEnumerable<string> lines)
         {
             Func<string> readLine = null;
             if (lines != null)
@@ -251,7 +251,7 @@ namespace SpeedyTools
                 readLine = () =>
                     (enumerator.MoveNext()) ? enumerator.Current ?? "" : null;
             }
-            return TryMatchSingle(readLine);
+            return TryMatch(readLine);
         }
 
         /// <summary>
@@ -262,7 +262,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="input">lines to be parsed</param>
         /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
-        public bool TryMatchSingle(Func<string> readLine)
+        public bool TryMatch(Func<string> readLine)
         {
             StartMatching();
             Input = new ParserInput(this, "", readLine, 0);
@@ -1192,6 +1192,81 @@ namespace SpeedyTools
         }
 
         /// <summary>
+        /// Consumes the identifier and stores it in variable 
+        /// </summary>
+        /// <param name="mayStartWithDigit">if true, the method can consume indentifier starting with digit(s),
+        ///                     otherwise does not</param>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result</param>
+        /// <returns>true</returns>
+        public bool Identifier(bool mayStartWithDigit, string varName)
+        {
+            char c = Input.GotoPrintChar();
+            if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
+                return false;
+            StringBuilder value = new StringBuilder(c);
+            while (IsIdentChar(c = Input.Advance()))
+                value.Append(c);
+            Result.Add(varName, value.ToString());
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes the identifier and puts it as the argument of the function passed as parameter.
+        /// </summary>
+        /// <param name="mayStartWithDigit">if true, the method can consume indentifier starting with digit(s),
+        ///                     otherwise does not</param>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result</param>
+        /// <returns>method returns the value returned by consumingAction</returns>
+        public bool Identifier(bool mayStartWithDigit, Func<string, bool> consumingAction)
+        {
+            char c = Input.GotoPrintChar();
+            if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
+                return false;
+            StringBuilder value = new StringBuilder(c);
+            while (IsIdentChar(c = Input.Advance()))
+                value.Append(c);
+            return consumingAction(value.ToString());
+        }
+
+        /// <summary>
+        /// Consumes the sequence of printable (i.e. non-whitespace) characters and stores it in variable. 
+        /// </summary>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result</param>
+        /// <returns>true, if the sequecne of printable characters is non-empty</returns>
+        public bool Printable(string varName)
+        {
+            Input.GotoPrintChar();
+            StringBuilder value = new StringBuilder();
+            char c;
+            while ((c = Input.Advance()) != '\0' && !char.IsWhiteSpace(c))
+                value.Append(c);
+            if (value.Length <= 0)
+                return false;
+            Result.Add(varName, value.ToString());
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes the the sequence of printable (i.e. non-whitespace) characters and puts it 
+        /// as the argument of the function passed as parameter.
+        /// </summary>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result</param>
+        /// <returns>method returns the value returned by consumingAction</returns>
+        public bool Printable(bool mayStartWithDigit, Func<string, bool> consumingAction)
+        {
+            Input.GotoPrintChar();
+            StringBuilder value = new StringBuilder();
+            char c;
+            while ((c = Input.Advance()) != '\0' && !char.IsWhiteSpace(c))
+                value.Append(c);
+            return consumingAction(value.ToString());
+        }
+
+        /// <summary>
         /// Sets sentinel state. If sentinel does not exist in sentinel's list, it is added to the list.
         /// </summary>
         /// <param name="sentinel">sentinel</param>
@@ -1199,13 +1274,24 @@ namespace SpeedyTools
         /// <returns>always true</returns>
         public bool SetSentinel(string sentinel, SentinelState state)
         {
-            Sentinels.SetSentinelState(sentinel, state, this);
+            Sentinels.SetSentinelState(sentinel, state);
             return true;
         }
 
         public SentinelState GetSentinelState(string sentinel)
         {
             return Sentinels.GetSentinelState(sentinel);
+        }
+
+        /// <summary>
+        /// Sets all sentinels' state. 
+        /// </summary>
+        /// <param name="state">sentinel state</param>
+        /// <returns>always true</returns>
+        public bool SetAllSentinels(SentinelState state)
+        {
+            Sentinels.SetAllSentinelsState(state);
+            return true;
         }
 
         private void GotoNextMatchingPos()
@@ -2024,7 +2110,7 @@ namespace SpeedyTools
                     return Consumeable.GetAt(inx) ? SentinelState.Consumeable : SentinelState.Disabled;
             }
 
-            public void SetSentinelState(string sentinel, SentinelState st, SpeedyParser p)
+            public void SetSentinelState(string sentinel, SentinelState st)
             {
                 int inx = FindSentinel(sentinel);
                 if (inx >= 0)
@@ -2034,6 +2120,14 @@ namespace SpeedyTools
                 }
             }
 
+            public void SetAllSentinelsState(SentinelState st)
+            {
+                for (int i = 0; i < Sentinels.Count; i++)
+                {
+                    Enabled = Enabled.SetAt(i, st == SentinelState.Active);
+                    Consumeable = Consumeable.SetAt(i, st == SentinelState.Disabled || st == SentinelState.Consumeable);
+                }
+            }
         }
 
         public struct BitArray
