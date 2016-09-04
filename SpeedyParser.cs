@@ -1238,10 +1238,8 @@ namespace SpeedyTools
         /// <returns>true, if the sequecne of printable characters is non-empty</returns>
         public bool Printable(string varName)
         {
-            Input.GotoPrintChar();
             StringBuilder value = new StringBuilder();
-            char c;
-            while ((c = Input.Advance()) != '\0' && !char.IsWhiteSpace(c))
+            for (char c = Input.GotoPrintChar();  c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
                 value.Append(c);
             if (value.Length <= 0)
                 return false;
@@ -1258,10 +1256,8 @@ namespace SpeedyTools
         /// <returns>method returns the value returned by consumingAction</returns>
         public bool Printable(bool mayStartWithDigit, Func<string, bool> consumingAction)
         {
-            Input.GotoPrintChar();
             StringBuilder value = new StringBuilder();
-            char c;
-            while ((c = Input.Advance()) != '\0' && !char.IsWhiteSpace(c))
+            for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
                 value.Append(c);
             return consumingAction(value.ToString());
         }
