@@ -921,7 +921,13 @@ namespace SpeedyTools
 
         protected bool Else_implementation(Func<bool>[] body)
         {
-            return FIfTestSucceeded || Do_implementation(body);
+            if (!FIfTestSucceeded)
+            {
+                bool res = Do_implementation(body);
+                FIfTestSucceeded = true;
+                return res;
+            }
+            return true;
         }
 
         /// <summary>
@@ -1104,7 +1110,7 @@ namespace SpeedyTools
         /// Throws an exception.
         /// </summary>
         /// <param name="body">exception to be thrown.</param>
-        /// <returns>always true.</returns>
+        /// <returns>true.</returns>
         public bool Throw(Exception exception)
         {
             return false;
@@ -1134,6 +1140,11 @@ namespace SpeedyTools
             return true;
         }
 
+        private bool VarValueIsSkipable(string varName)
+        {
+            return varName == null || (varName =varName.Trim()) == "" || varName[0] == '_';
+        }
+
         /// <summary>
         /// Consumes the input up to the first active sentinel or input's eof and stores it in variable 
         /// </summary>
@@ -1143,7 +1154,7 @@ namespace SpeedyTools
         public bool Span(string varName)
         {
             Input.GotoPrintChar();
-            bool recording = (varName = varName ?? "").Trim() != "" && varName[0] != '_';
+            bool recording = VarValueIsSkipable(varName);
             if (recording)
                 Input.BeginRecord();
             try
@@ -1166,8 +1177,8 @@ namespace SpeedyTools
         /// Consumes the input up to the first active sentinel or input's eof and puts it as the argument of 
         /// the function passed as parameter.
         /// </summary>
-        /// <param name="consumingAction">action taking consumed input as a parameter</param>
-        /// <returns>method returns the value returned by consumingAction</returns>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>method returns the value returned by consumingAction.</returns>
         public bool Span(Func<string, bool> consumingAction)
         {
             Input.GotoPrintChar();
@@ -1192,7 +1203,7 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Consumes the identifier and stores it in variable 
+        /// Consumes the identifier and stores it in variable. 
         /// </summary>
         /// <param name="mayStartWithDigit">if true, the method can consume indentifier starting with digit(s),
         ///                     otherwise does not</param>
@@ -1204,10 +1215,12 @@ namespace SpeedyTools
             char c = Input.GotoPrintChar();
             if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
                 return false;
-            StringBuilder value = new StringBuilder(c);
+            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder(c);
             while (IsIdentChar(c = Input.Advance()))
-                value.Append(c);
-            Result.Add(varName, value.ToString());
+                if (value != null)
+                    value.Append(c);
+            if (value != null)
+                Result.Add(varName, value.ToString());
             return true;
         }
 
@@ -1215,19 +1228,19 @@ namespace SpeedyTools
         /// Consumes the identifier and puts it as the argument of the function passed as parameter.
         /// </summary>
         /// <param name="mayStartWithDigit">if true, the method can consume indentifier starting with digit(s),
-        ///                     otherwise does not</param>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result</param>
-        /// <returns>method returns the value returned by consumingAction</returns>
+        ///                     otherwise does not,</param>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>method returns the value returned by consumingAction.</returns>
         public bool Identifier(bool mayStartWithDigit, Func<string, bool> consumingAction)
         {
             char c = Input.GotoPrintChar();
             if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
                 return false;
-            StringBuilder value = new StringBuilder(c);
+            StringBuilder value = (consumingAction != null) ? new StringBuilder(c) : null;
             while (IsIdentChar(c = Input.Advance()))
-                value.Append(c);
-            return consumingAction(value.ToString());
+                if (value != null)
+                    value.Append(c);
+            return value == null || consumingAction(value.ToString());
         }
 
         /// <summary>
@@ -1238,10 +1251,11 @@ namespace SpeedyTools
         /// <returns>true, if the sequecne of printable characters is non-empty</returns>
         public bool Printable(string varName)
         {
-            StringBuilder value = new StringBuilder();
-            for (char c = Input.GotoPrintChar();  c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
-                value.Append(c);
-            if (value.Length <= 0)
+            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            if (value == null || value.Length <= 0)
                 return false;
             Result.Add(varName, value.ToString());
             return true;
@@ -1251,23 +1265,54 @@ namespace SpeedyTools
         /// Consumes the the sequence of printable (i.e. non-whitespace) characters and puts it 
         /// as the argument of the function passed as parameter.
         /// </summary>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result</param>
-        /// <returns>method returns the value returned by consumingAction</returns>
-        public bool Printable(bool mayStartWithDigit, Func<string, bool> consumingAction)
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>method returns the value returned by consumingAction.</returns>
+        public bool Printable(Func<string, bool> consumingAction)
         {
-            StringBuilder value = new StringBuilder();
+            StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
             for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
-                value.Append(c);
-            return consumingAction(value.ToString());
+                if (value != null)
+                    value.Append(c);
+            return value == null || consumingAction(value.ToString());
+        }
+
+        /// <summary>
+        /// Comsumes the input until it hits the end of the input.
+        /// </summary>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result.</param>
+        /// <returns>true.</returns>
+        public bool ReadUntilEof(string varName)
+        {
+            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            for (char c = Input.GotoPrintChar(); c != '\0'; c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            if (value != null)
+                Result.Add(varName, value.ToString().Trim());
+            return true;
+        }
+
+        /// <summary>
+        /// Comsumes the input until it hits the end of the input.
+        /// </summary>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>true.</returns>
+        public bool ReadUntilEof(Func<string, bool> consumingAction)
+        {
+            StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
+            for (char c = Input.GotoPrintChar(); c != '\0'; c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            return value == null || consumingAction(value.ToString().Trim());
         }
 
         /// <summary>
         /// Sets sentinel state. If sentinel does not exist in sentinel's list, it is added to the list.
         /// </summary>
-        /// <param name="sentinel">sentinel</param>
-        /// <param name="state">sentinel state</param>
-        /// <returns>always true</returns>
+        /// <param name="sentinel">sentinel,</param>
+        /// <param name="state">sentinel state.</param>
+        /// <returns>true.</returns>
         public bool SetSentinel(string sentinel, SentinelState state)
         {
             Sentinels.SetSentinelState(sentinel, state);
@@ -1283,7 +1328,7 @@ namespace SpeedyTools
         /// Sets all sentinels' state. 
         /// </summary>
         /// <param name="state">sentinel state</param>
-        /// <returns>always true</returns>
+        /// <returns>true</returns>
         public bool SetAllSentinels(SentinelState state)
         {
             Sentinels.SetAllSentinelsState(state);
@@ -1450,6 +1495,17 @@ namespace SpeedyTools
         }
 
         /// <summary>
+        /// Returns true if there is a sentinel at the current input's position. This method consumes the sentinel, 
+        /// if sentinel is met.
+        /// </summary>
+        /// <param name="sentinels">list of sentinels to be tested,</param>
+        /// <returns>true if one of sentinels is met, otherwise false.</returns>
+        public bool TestOneOf(string[] sentinels)
+        {
+            return TestOneOf(sentinels, consumeInput: true);
+        }
+
+        /// <summary>
         /// Returns true if there is a sentinel at the current input's position.
         /// </summary>
         /// <param name="sentinels">list of sentinels to be tested,</param>
@@ -1485,12 +1541,23 @@ namespace SpeedyTools
         /// starting from current input's position.
         /// </summary>
         /// <param name="sentinels">list of sentinels to be tested,</param>
-        /// <returns>always true.</returns>
+        /// <returns>true.</returns>
         public bool TestSomeOf(string[] sentinels)
         {
             while (TestOneOf(sentinels, consumeInput: true))
                 ;
             return true;
+        }
+
+        /// <summary>
+        /// Returns true if there is a sentinel at the current input's position. This method consumes the sentinel, 
+        /// if sentinel is met.
+        /// </summary>
+        /// <param name="sentinel">sentinel to be tested,</param>
+        /// <returns>true if sentinel is met, otherwise false.</returns>
+        public bool Test(string sentinel)
+        {
+            return Test(sentinel, consumeInput: true);
         }
 
         /// <summary>
@@ -1874,9 +1941,10 @@ namespace SpeedyTools
                 return GetCharAt(++FCurrentPos);
             }
 
-            public void GoToPos_Unsafe(long pos)
+            public bool GoToPos_Unsafe(long pos)
             {
                 FCurrentPos = pos;
+                return true;
             }
 
             private bool TestCommentSubstring(string str)
@@ -2198,16 +2266,16 @@ namespace SpeedyTools
         public struct SpeedyParserResult
         {
             /// <summary>
-            /// List of variables and values used internally by the class 
+            /// List of variables and values used internally by the class. 
             /// </summary>
             public Dictionary<string, List<string>> RawData;
 
             /// <summary>
-            /// Appends value to variable to the list of values for specified variable
+            /// Appends value to variable to the list of values for specified variable.
             /// </summary>
-            /// <param name="varName">name of the variable</param>
-            /// <param name="value">value</param>
-            /// <returns>always true</returns>
+            /// <param name="varName">name of the variable,</param>
+            /// <param name="value">value.</param>
+            /// <returns>true.</returns>
             public bool Add(string varName, string value)
             {
                 varName = varName ?? "";
@@ -2222,9 +2290,9 @@ namespace SpeedyTools
             }
 
             /// <summary>
-            /// Removes all values
+            /// Removes all values.
             /// </summary>
-            /// <returns>always true</returns>
+            /// <returns>true.</returns>
             public bool Clear()
             {
                 if (RawData != null)
