@@ -1202,7 +1202,7 @@ namespace SpeedyTools
 
         private bool VarValueIsSkipable(string varName)
         {
-            return varName == null || (varName =varName.Trim()) == "" || varName[0] == '_';
+            return varName == null || (varName = varName.Trim()) == "" || varName[0] == '_';
         }
 
         /// <summary>
@@ -1214,7 +1214,7 @@ namespace SpeedyTools
         public bool Span(string varName)
         {
             Input.GotoPrintChar();
-            bool recording = VarValueIsSkipable(varName);
+            bool recording = !VarValueIsSkipable(varName);
             if (recording)
                 Input.BeginRecord();
             try
