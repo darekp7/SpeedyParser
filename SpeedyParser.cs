@@ -562,6 +562,7 @@ namespace SpeedyTools
                     case "Do":
                     case "Throw":
                     case "ThrowIf":
+                    case "Nondeterministic":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
@@ -1103,6 +1104,65 @@ namespace SpeedyTools
             finally
             {
                 Sentinels = saveSent;
+            }
+        }
+
+        /// <summary>
+        /// Tries match to the input the first expression passed as a parameter, then second one, and so on until it finds
+        /// first correctly matching. Before every try, the input position and the Result class member are restored to values 
+        /// they had at the beginning of the method. 
+        /// 
+        /// NOTE1: This method may be viewed as a kind of backtracking (https://en.wikipedia.org/wiki/Backtracking)
+        /// and may have negative impact on the performance. On the other hand, it can simplify your life.
+        /// 
+        /// NOTE2: Although the parser restores input position and the value of the Result class member, the parser
+        /// cannot undo neither action(s) executed by Yield() method nor action(s) executed by lambda expression(s)
+        /// passed as parameter(s) to Span(), Identifier() and other consuming methods. Therefore, using Yield() 
+        /// and/or having side-effects lambda expression in body of Nondeterministic() seems to be in most cases 
+        /// a bad practice.
+        /// </summary>
+        /// <param name="body">expression(s) to be evaluated.</param>
+        /// <returns>false if all evaluated body expression(s) returned false, otherwise true.</returns>
+        public bool Nondeterministic(params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool Nondeterministic_implementation(Func<bool>[] body)
+        {
+            if (body == null || body.Length <= 0)
+                return true;
+            Input.GotoPrintChar();
+            long savePos = Input.CurrentPos;
+            var saveSent = Sentinels.Clone();
+            var saveRes = Result.Clone();
+            Input.BeginRecord();
+            try
+            {
+                for (int i = 0; i < body.Length; i++)
+                {
+                    if (body[i]())
+                        return true;
+                    Sentinels = saveSent;
+                    Result = saveRes;
+                    Input.GoToPos_Unsafe(savePos);
+                    if (i < body.Length - 1)
+                    {
+                        saveSent = Sentinels.Clone();
+                        saveRes = Result.Clone();
+                    }
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                Sentinels = saveSent;
+                Result = saveRes;
+                throw;
+            }
+            finally
+            {
+                Input.EndRecord();
             }
         }
 
@@ -2269,6 +2329,12 @@ namespace SpeedyTools
             /// List of variables and values used internally by the class. 
             /// </summary>
             public Dictionary<string, List<string>> RawData;
+
+            public SpeedyParserResult Clone()
+            {
+                var rawdataCopy = (RawData == null) ? new Dictionary<string, List<string>>() : new Dictionary<string, List<string>>(RawData);
+                return new SpeedyParserResult { RawData = rawdataCopy };
+            }
 
             /// <summary>
             /// Appends value to variable to the list of values for specified variable.
