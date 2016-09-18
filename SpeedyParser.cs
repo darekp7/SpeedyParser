@@ -2410,7 +2410,7 @@ namespace SpeedyTools
             }
 
             /// <summary>
-            /// Returns total count of all values (for all variables)
+            /// Returns total count of all values (the sum for all variables)
             /// </summary>
             public int TotalCount
             {
@@ -2424,6 +2424,154 @@ namespace SpeedyTools
                     return res;
                 }
             }
+
+            /// <summary>
+            /// Returns list of values for the variable specified in the method's parameter formatted as the table
+            /// with number of rows equal to the number of values and containing "i-th" value in each row. 
+            /// Moreover, in the second column of the table the index "i" is returned.
+            /// </summary>
+            /// <param name="varName2">name of the variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, int>> SelectValues(string varName)
+            {
+                if (RawData != null && RawData.ContainsKey(varName))
+                {
+                    for (int i = 0; i < RawData[varName].Count; i++)
+                        yield return new Tuple<string, int>(RawData[varName][i], i);
+                }
+            }
+
+            /// <summary>
+            /// Returns list of values of the variables specified in the method's parameters formatted as the table
+            /// with number of rows equal to the maximal number of values for variables specified in parameters 
+            /// and containing "i-th" values in each row. Moreover, in the last column of the table the index "i" 
+            /// is returned.
+            /// </summary>
+            /// <param name="varName1">name of the first variable</param>
+            /// <param name="varName2">name of the second variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, string, int>> SelectValues(string varName1, string varName2)
+            {
+                int n = Math.Max(ValuesCount(varName1), ValuesCount(varName2));
+                for (int i = 0; i < n; i++)
+                    yield return new Tuple<string, string, int>(GetValue(varName1, i), GetValue(varName2, i), i);
+            }
+
+            /// <summary>
+            /// Returns list of values of the variables specified in the method's parameters formatted as the table
+            /// with number of rows equal to the maximal number of values for variables specified in parameters 
+            /// and containing "i-th" values in each row. Moreover, in the last column of the table the index "i" 
+            /// is returned.
+            /// </summary>
+            /// <param name="varName1">name of the first variable</param>
+            /// <param name="varName2">name of the second variable</param>
+            /// <param name="varName3">name of the third variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, string, string, int>> SelectValues(string varName1, string varName2, string varName3)
+            {
+                int n = Math.Max(Math.Max(ValuesCount(varName1), ValuesCount(varName2)), ValuesCount(varName3));
+                for (int i = 0; i < n; i++)
+                    yield return new Tuple<string, string, string, int>(
+                        GetValue(varName1, i), GetValue(varName2, i), GetValue(varName3, i), i);
+            }
+
+            /// <summary>
+            /// Returns list of values of the variables specified in the method's parameters formatted as the table
+            /// with number of rows equal to the maximal number of values for variables specified in parameters 
+            /// and containing "i-th" values in each row. Moreover, in the last column of the table the index "i" 
+            /// is returned.
+            /// </summary>
+            /// <param name="varName1">name of the first variable</param>
+            /// <param name="varName2">name of the second variable</param>
+            /// <param name="varName3">name of the third variable</param>
+            /// <param name="varName4">name of the fourth variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, string, string, string, int>> SelectValues(string varName1, string varName2, 
+                string varName3, string varName4)
+            {
+                int n = Math.Max(Math.Max(ValuesCount(varName1), ValuesCount(varName2)), 
+                                 Math.Max(ValuesCount(varName3), ValuesCount(varName4)));
+                for (int i = 0; i < n; i++)
+                    yield return new Tuple<string, string, string, string, int>(
+                        GetValue(varName1, i), GetValue(varName2, i), GetValue(varName3, i), GetValue(varName4, i), i);
+            }
+
+            /// <summary>
+            /// Returns list of values of the variables specified in the method's parameters formatted as the table
+            /// with number of rows equal to the maximal number of values for variables specified in parameters 
+            /// and containing "i-th" values in each row. Moreover, in the last column of the table the index "i" 
+            /// is returned.
+            /// </summary>
+            /// <param name="varName1">name of the first variable</param>
+            /// <param name="varName2">name of the second variable</param>
+            /// <param name="varName3">name of the third variable</param>
+            /// <param name="varName4">name of the fourth variable</param>
+            /// <param name="varName5">name of the fifth variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, string, string, string, string, int>> SelectValues(string varName1, string varName2,
+                string varName3, string varName4, string varName5)
+            {
+                int n = Math.Max(Math.Max(Math.Max(ValuesCount(varName1), ValuesCount(varName2)),
+                                 Math.Max(ValuesCount(varName3), ValuesCount(varName4))),
+                                 ValuesCount(varName5));
+                for (int i = 0; i < n; i++)
+                    yield return new Tuple<string, string, string, string, string, int>(
+                        GetValue(varName1, i), GetValue(varName2, i), GetValue(varName3, i), GetValue(varName4, i), 
+                        GetValue(varName5, i), i);
+            }
+
+            /// <summary>
+            /// Returns list of values of the variables specified in the method's parameters formatted as the table
+            /// with number of rows equal to the maximal number of values for variables specified in parameters 
+            /// and containing "i-th" values in each row. Moreover, in the last column of the table the index "i" 
+            /// is returned.
+            /// </summary>
+            /// <param name="varName1">name of the first variable</param>
+            /// <param name="varName2">name of the second variable</param>
+            /// <param name="varName3">name of the third variable</param>
+            /// <param name="varName4">name of the fourth variable</param>
+            /// <param name="varName5">name of the fifth variable</param>
+            /// <param name="varName6">name of the sixth variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, string, string, string, string, string, int>> SelectValues(string varName1, string varName2,
+                string varName3, string varName4, string varName5, string varName6)
+            {
+                int n = Math.Max(Math.Max(Math.Max(ValuesCount(varName1), ValuesCount(varName2)),
+                                 Math.Max(ValuesCount(varName3), ValuesCount(varName4))),
+                                 Math.Max(ValuesCount(varName5), ValuesCount(varName6)));
+                for (int i = 0; i < n; i++)
+                    yield return new Tuple<string, string, string, string, string, string, int>(
+                        GetValue(varName1, i), GetValue(varName2, i), GetValue(varName3, i), GetValue(varName4, i),
+                        GetValue(varName5, i), GetValue(varName6, i), i);
+            }
+
+            /// <summary>
+            /// Returns list of values of the variables specified in the method's parameters formatted as the table
+            /// with number of rows equal to the maximal number of values for variables specified in parameters 
+            /// and containing "i-th" values in each row. Moreover, in the last column of the table the index "i" 
+            /// is returned.
+            /// </summary>
+            /// <param name="varName1">name of the first variable</param>
+            /// <param name="varName2">name of the second variable</param>
+            /// <param name="varName3">name of the third variable</param>
+            /// <param name="varName4">name of the fourth variable</param>
+            /// <param name="varName5">name of the fifth variable</param>
+            /// <param name="varName6">name of the sixth variable</param>
+            /// <param name="varName7">name of the seventh variable</param>
+            /// <returns>table of values</returns>
+            public IEnumerable<Tuple<string, string, string, string, string, string, string, int>> SelectValues(string varName1, string varName2,
+                string varName3, string varName4, string varName5, string varName6, string varName7)
+            {
+                int n = Math.Max(Math.Max(Math.Max(ValuesCount(varName1), ValuesCount(varName2)),
+                                          Math.Max(ValuesCount(varName3), ValuesCount(varName4))),
+                                 Math.Max(Math.Max(ValuesCount(varName5), ValuesCount(varName6)), 
+                                          ValuesCount(varName7)));
+                for (int i = 0; i < n; i++)
+                    yield return new Tuple<string, string, string, string, string, string, string, int>(
+                        GetValue(varName1, i), GetValue(varName2, i), GetValue(varName3, i), GetValue(varName4, i),
+                        GetValue(varName5, i), GetValue(varName6, i), GetValue(varName7, i), i);
+            }
+
         }
     }
 }
