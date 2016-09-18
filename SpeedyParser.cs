@@ -564,7 +564,7 @@ namespace SpeedyTools
                     case "Do":
                     case "Throw":
                     case "ThrowIf":
-                    case "Nondeterministic":
+                    case "NondeterministicChoice":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
@@ -1110,45 +1110,45 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Tries match to the input the first expression passed as a parameter, then second one, and so on until it finds
-        /// first correctly matching. Before every try, the input position and the Result class member are restored to values 
-        /// they had at the beginning of the method. 
+        /// Tries match to the input the first expression passed as a parameter (called alternative), then second one, 
+        /// and so on until it finds the first correctly matching. Before every try, the input position and the Result 
+        /// class member are restored to values they had at the beginning of the method. 
         /// 
-        /// NOTE1: This method may be viewed as a kind of backtracking (https://en.wikipedia.org/wiki/Backtracking)
-        /// and may have negative impact on the performance. On the other hand, it can simplify your life.
+        /// NOTE1: This method is as a kind of backtracking (https://en.wikipedia.org/wiki/Backtracking) and may have
+        /// negative impact on the performance. On the other hand, it can simplify your life.
         /// 
         /// NOTE2: Although the parser restores input position and the value of the Result class member, the parser
         /// cannot undo neither action(s) executed by Yield() method nor action(s) executed by lambda expression(s)
         /// passed as parameter(s) to Span(), Identifier() and other consuming methods. Therefore, using Yield() 
-        /// and/or having side-effects lambda expression in body of Nondeterministic() seems to be in most cases 
+        /// and/or having side-effects lambda expression in body of NondeterministicChoice() seems to be in most cases 
         /// a bad practice.
         /// </summary>
-        /// <param name="body">expression(s) to be evaluated.</param>
-        /// <returns>false if all evaluated body expression(s) returned false, otherwise true.</returns>
-        public bool Nondeterministic(params bool[] body)
+        /// <param name="alternatives">expression(s) aka alternative(s) to be evaluated.</param>
+        /// <returns>false if all evaluated alternatives returned false, otherwise true.</returns>
+        public bool NondeterministicChoice(params bool[] alternatives)
         {
             return false;
         }
 
-        protected bool Nondeterministic_implementation(Func<bool>[] body)
+        protected bool NondeterministicChoice_implementation(Func<bool>[] alternatives)
         {
-            if (body == null || body.Length <= 0)
-                return true;
             Input.GotoPrintChar();
+            if (alternatives == null || alternatives.Length <= 0)
+                return true;
             long savePos = Input.CurrentPos;
             var saveSent = Sentinels.Clone();
             var saveRes = Result.Clone();
             Input.BeginRecord();
             try
             {
-                for (int i = 0; i < body.Length; i++)
+                for (int i = 0; i < alternatives.Length; i++)
                 {
-                    if (body[i]())
+                    if (alternatives[i]())
                         return true;
                     Sentinels = saveSent;
                     Result = saveRes;
                     Input.GoToPos_Unsafe(savePos);
-                    if (i < body.Length - 1)
+                    if (i < alternatives.Length - 1)
                     {
                         saveSent = Sentinels.Clone();
                         saveRes = Result.Clone();
@@ -1367,6 +1367,84 @@ namespace SpeedyTools
                 if (value != null)
                     value.Append(c);
             return value == null || consumingAction(value.ToString().Trim());
+        }
+
+
+        /// <summary>
+        /// Tries match to the input the first expression passed as a parameter, then second one, and so on until it finds
+        /// first correctly matching. Before every try, the input position and the Result class member are restored to values 
+        /// they had at the beginning of the method. 
+        /// 
+        /// NOTE1: This method may be viewed as a kind of backtracking (https://en.wikipedia.org/wiki/Backtracking)
+        /// and may have negative impact on the performance. On the other hand, it can simplify your life.
+        /// 
+        /// NOTE2: Although the parser restores input position and the value of the Result class member, the parser
+        /// cannot undo neither action(s) executed by Yield() method nor action(s) executed by lambda expression(s)
+        /// passed as parameter(s) to Span(), Identifier() and other consuming methods. Therefore, using Yield() 
+        /// and/or having side-effects lambda expression in body of NondeterministicChoice() seems to be in most cases 
+        /// a bad practice.
+        /// </summary>
+        /// <param name="body">expression(s) to be evaluated.</param>
+        /// <returns>false if all evaluated body expression(s) returned false, otherwise true.</returns>
+
+
+        /// <summary>
+        /// Simillar to Span(), but uses backtracking to guess the length of the span.
+        /// 
+        /// NOTE1: Because this method uses backtracking (https://en.wikipedia.org/wiki/Backtracking),
+        /// it may have negative impact on the performance. On the other hand, it can simplify your life.
+        /// 
+        /// NOTE2: Although the parser restores input position and the value of the Result class member, the parser
+        /// cannot undo neither action(s) executed by Yield() method nor action(s) executed by lambda expression(s)
+        /// passed as parameter(s) to Span(), Identifier() and other consuming methods. Therefore, using Yield() 
+        /// and/or having side-effects lambda expression in body of NondeterministicChoice() seems to be in most cases 
+        /// a bad practice.
+        /// </summary>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                       the value is not stored in Result</param>
+        /// <param name="body">expression(s) to be evaluated.</param>
+        /// <returns>true</returns>
+        public bool NondeterministicSpan(string varName, params bool[] body)
+        {
+            return false;
+        }
+
+        protected bool NondeterministicSpan_implementation(string varName, Func<bool>[] body)
+        {
+            Input.GotoPrintChar();
+            if (body == null || body.Length <= 0)
+                return true;
+            long savePos = Input.CurrentPos;
+            var saveSent = Sentinels.Clone();
+            var saveRes = Result.Clone();
+            Input.BeginRecord();
+            try
+            {
+                for (int i = 0; i < body.Length; i++)
+                {
+                    if (body[i]())
+                        return true;
+                    Sentinels = saveSent;
+                    Result = saveRes;
+                    Input.GoToPos_Unsafe(savePos);
+                    if (i < body.Length - 1)
+                    {
+                        saveSent = Sentinels.Clone();
+                        saveRes = Result.Clone();
+                    }
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                Sentinels = saveSent;
+                Result = saveRes;
+                throw;
+            }
+            finally
+            {
+                Input.EndRecord();
+            }
         }
 
         /// <summary>
