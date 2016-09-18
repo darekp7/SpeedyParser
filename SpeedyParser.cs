@@ -6,7 +6,9 @@ using System.Linq.Expressions;
 /*
  * Simple parser.
  * Author: Dariusz Pilarczyk (dpilarcz@gmail.com)
+ * github: https://github.com/darekp7/SpeedyParser
  * 
+ * Licence: public domain / unlicenced / WTFPL
  * 
  * This is free and unencumbered software released into the public domain.
  * 
@@ -147,7 +149,7 @@ namespace SpeedyTools
             Disabled
         }
 
-        private static readonly ParserOptions DefaultParserOptions = new ParserOptions();
+        protected static readonly ParserOptions DefaultParserOptions = new ParserOptions();
 
         public ParserOptions Options = DefaultParserOptions;
         protected Func<SpeedyParser, bool> Body = null;
@@ -618,7 +620,7 @@ namespace SpeedyTools
             return res;
         }
 
-        private string TryAddSentinels(Expression expr, string callingFunction, int paramInx, out Expression[] out_sentinels)
+        protected string TryAddSentinels(Expression expr, string callingFunction, int paramInx, out Expression[] out_sentinels)
         {
             object obj = Evaluate(expr, callingFunction, paramInx);
             if (obj != null)
@@ -1200,7 +1202,7 @@ namespace SpeedyTools
             return true;
         }
 
-        private bool VarValueIsSkipable(string varName)
+        protected bool VarValueIsSkipable(string varName)
         {
             return varName == null || (varName = varName.Trim()) == "" || varName[0] == '_';
         }
@@ -1395,7 +1397,7 @@ namespace SpeedyTools
             return true;
         }
 
-        private void GotoNextMatchingPos()
+        protected void GotoNextMatchingPos()
         {
             switch (Input.GotoPrintChar())
             {
@@ -1425,7 +1427,7 @@ namespace SpeedyTools
                     Input.Advance();
         }
 
-        private void GotoClosingBracket(char closing_bracket)
+        protected void GotoClosingBracket(char closing_bracket)
         {
             int n_brackets = 1;
             char c;
@@ -1463,7 +1465,7 @@ namespace SpeedyTools
                 throw exc2;
         }
 
-        private void GotoClosingQuote(char closing_quote)
+        protected void GotoClosingQuote(char closing_quote)
         {
             char c;
             switch ((closing_quote == '\'') ? Options.SingleQuoteSensitivity : Options.DoubleQuoteSensitivity)
@@ -1508,7 +1510,7 @@ namespace SpeedyTools
             }
         }
 
-        private bool PointsAtSentinel()
+        protected bool PointsAtSentinel()
         {
             if (Sentinels.Sentinels == null || !Sentinels.BloomFilter.ContainsHash(Input.HashAtCurrentPos()))
                 return false;
