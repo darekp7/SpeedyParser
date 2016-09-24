@@ -1132,8 +1132,13 @@ namespace SpeedyTools
 
         protected bool ChoiceWithBacktracking_implementation(Func<bool>[] alternatives)
         {
+            return ConditionsWithBacktracking_Implementation(needsAnd: false, conditions: alternatives);
+        }
+
+        protected bool ConditionsWithBacktracking_Implementation(bool needsAnd, Func<bool>[] conditions)
+        {
             Input.GotoPrintChar();
-            if (alternatives == null || alternatives.Length <= 0)
+            if (conditions == null || conditions.Length <= 0)
                 return true;
             long savePos = Input.CurrentPos;
             var saveSent = Sentinels.Clone();
@@ -1141,20 +1146,23 @@ namespace SpeedyTools
             Input.BeginRecord();
             try
             {
-                for (int i = 0; i < alternatives.Length; i++)
+                for (int i = 0; i < conditions.Length; i++)
                 {
-                    if (alternatives[i]())
+                    bool cond = conditions[i]();
+                    if (!needsAnd && cond)  // OR - alternative
                         return true;
+                    if (needsAnd && !cond)  // AND - condition
+                        return false;
                     Sentinels = saveSent;
                     Result = saveRes;
                     Input.GoToPos_Unsafe(savePos);
-                    if (i < alternatives.Length - 1)
+                    if (i < conditions.Length - 1)
                     {
                         saveSent = Sentinels.Clone();
                         saveRes = Result.Clone();
                     }
                 }
-                return false;
+                return needsAnd;  // false for OR, true for AND
             }
             catch (Exception)
             {
