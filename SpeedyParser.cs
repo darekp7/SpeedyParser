@@ -1132,10 +1132,43 @@ namespace SpeedyTools
 
         protected bool ChoiceWithBacktracking_implementation(Func<bool>[] alternatives)
         {
-            return ConditionsWithBacktracking_Implementation(needsAnd: false, conditions: alternatives);
+            Input.GotoPrintChar();
+            if (alternatives == null || alternatives.Length <= 0)
+                return true;
+            long savePos = Input.CurrentPos;
+            var saveSent = Sentinels.Clone();
+            var saveRes = Result.Clone();
+            Input.BeginRecord();
+            try
+            {
+                for (int i = 0; i < alternatives.Length; i++)
+                {
+                    if (alternatives[i]())
+                        return true;
+                    Sentinels = saveSent;
+                    Result = saveRes;
+                    Input.GoToPos_Unsafe(savePos);
+                    if (i < alternatives.Length - 1)
+                    {
+                        saveSent = Sentinels.Clone();
+                        saveRes = Result.Clone();
+                    }
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                Sentinels = saveSent;
+                Result = saveRes;
+                throw;
+            }
+            finally
+            {
+                Input.EndRecord();
+            }
         }
 
-        protected bool ConditionsWithBacktracking_Implementation(bool needsAnd, Func<bool>[] conditions)
+        protected bool ConditionAndWithBacktrackingImplementation(Func<bool>[] conditions)
         {
             Input.GotoPrintChar();
             if (conditions == null || conditions.Length <= 0)
@@ -1147,22 +1180,14 @@ namespace SpeedyTools
             try
             {
                 for (int i = 0; i < conditions.Length; i++)
-                {
-                    bool cond = conditions[i]();
-                    if (!needsAnd && cond)  // OR - alternative
-                        return true;
-                    if (needsAnd && !cond)  // AND - condition
-                        return false;
-                    Sentinels = saveSent;
-                    Result = saveRes;
-                    Input.GoToPos_Unsafe(savePos);
-                    if (i < conditions.Length - 1)
+                    if (!conditions[i]())
                     {
-                        saveSent = Sentinels.Clone();
-                        saveRes = Result.Clone();
+                        Sentinels = saveSent;
+                        Result = saveRes;
+                        Input.GoToPos_Unsafe(savePos);
+                        return false;
                     }
-                }
-                return needsAnd;  // false for OR, true for AND
+                return true;
             }
             catch (Exception)
             {
@@ -1407,37 +1432,13 @@ namespace SpeedyTools
             Input.GotoPrintChar();
             if (conditions == null || conditions.Length <= 0)
                 return true;
-            long savePos = Input.CurrentPos;
-            var saveSent = Sentinels.Clone();
-            var saveRes = Result.Clone();
-            Input.BeginRecord();
-            try
+
+            while (!ConditionAndWithBacktrackingImplementation(conditions: conditions))
             {
-                for (int i = 0; i < conditions.Length; i++)
-                {
-                    if (conditions[i]())
-                        return true;
-                    Sentinels = saveSent;
-                    Result = saveRes;
-                    Input.GoToPos_Unsafe(savePos);
-                    if (i < conditions.Length - 1)
-                    {
-                        saveSent = Sentinels.Clone();
-                        saveRes = Result.Clone();
-                    }
-                }
-                return false;
+                if (Input.GotoPrintChar() == '\0')
+                    return false;
             }
-            catch (Exception)
-            {
-                Sentinels = saveSent;
-                Result = saveRes;
-                throw;
-            }
-            finally
-            {
-                Input.EndRecord();
-            }
+            return true;
         }
 
         /// <summary>
