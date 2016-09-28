@@ -541,7 +541,7 @@ namespace SpeedyTools
                     case "IfAtLeastOneOf":
                     case "ElseIfAtLeastOneOf":
                     case "WhileAtLeastOneOf":
-                    case "SpanWithBacktracking":
+                    case "SpanUntilCondition_WithBacktracking":
                         if ((expr.Method.Name == "If" || expr.Method.Name == "ElseIf" || expr.Method.Name == "While")
                             && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
                         {
@@ -566,7 +566,7 @@ namespace SpeedyTools
                     case "Do":
                     case "Throw":
                     case "ThrowIf":
-                    case "ChoiceWithBacktracking":
+                    case "Choice_WithBacktracking":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
@@ -1125,12 +1125,12 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="alternatives">expression(s) aka alternative(s) to be evaluated.</param>
         /// <returns>false if all evaluated alternatives returned false, otherwise true.</returns>
-        public bool ChoiceWithBacktracking(params bool[] alternatives)
+        public bool Choice_WithBacktracking(params bool[] alternatives)
         {
             return false;
         }
 
-        protected bool ChoiceWithBacktracking_implementation(Func<bool>[] alternatives)
+        protected bool Choice_WithBacktracking_implementation(Func<bool>[] alternatives)
         {
             Input.GotoPrintChar();
             if (alternatives == null || alternatives.Length <= 0)
@@ -1235,7 +1235,7 @@ namespace SpeedyTools
             return true;
         }
 
-        protected bool VarValueIsSkipable(string varName)
+        protected static bool VarValueIsSkipable(string varName)
         {
             return varName == null || (varName = varName.Trim()) == "" || varName[0] == '_';
         }
@@ -1422,21 +1422,35 @@ namespace SpeedyTools
         ///                       the value is not stored in Result</param>
         /// <param name="body">expression(s) to be evaluated.</param>
         /// <returns>true</returns>
-        public bool SpanWithBacktracking(string varName, params bool[] conditions)
+        public bool SpanUntilCondition_WithBacktracking(string varName, params bool[] conditions)
         {
             return false;
         }
 
-        protected bool SpanWithBacktracking_implementation(string varName, Func<bool>[] conditions)
+        protected bool SpanUntilCondition_WithBacktracking_implementation(string varName, Func<bool>[] conditions)
         {
             Input.GotoPrintChar();
             if (conditions == null || conditions.Length <= 0)
                 return true;
 
+            bool recording = !VarValueIsSkipable(varName);
+            var saveRes = new SpeedyParserResult();
+            long startPos = Input.CurrentPos;
+            if (recording)
+            {
+                saveRes = Result.Clone();
+                Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
+            }
+
             while (!ConditionAndWithBacktrackingImplementation(conditions: conditions))
             {
+                if (recording)
+                    Result = saveRes.Clone();
                 if (Input.GotoPrintChar() == '\0')
                     return false;
+                GotoNextMatchingPos();
+                if (recording)
+                    Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             return true;
         }
