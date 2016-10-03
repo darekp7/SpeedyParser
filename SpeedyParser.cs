@@ -541,7 +541,7 @@ namespace SpeedyTools
                     case "IfAtLeastOneOf":
                     case "ElseIfAtLeastOneOf":
                     case "WhileAtLeastOneOf":
-                    case "SpanUntilCondition_WithBacktracking":
+                    case "SpanUntilConditionWithBacktracking":
                         if ((expr.Method.Name == "If" || expr.Method.Name == "ElseIf" || expr.Method.Name == "While")
                             && pars.Length > 0 && expr.Arguments.Count == pars.Length && pars[0].Name == "condition")
                         {
@@ -566,7 +566,7 @@ namespace SpeedyTools
                     case "Do":
                     case "Throw":
                     case "ThrowIf":
-                    case "Choice_WithBacktracking":
+                    case "ChoiceWithBacktracking":
                         if (pars.Length > 0 && expr.Arguments.Count == pars.Length)
                         {
                             Expression[] args = ConvertArgumentsToLambdas(expr.Arguments, 0, null);
@@ -1125,12 +1125,12 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="alternatives">expression(s) aka alternative(s) to be evaluated.</param>
         /// <returns>false if all evaluated alternatives returned false, otherwise true.</returns>
-        public bool Choice_WithBacktracking(params bool[] alternatives)
+        public bool ChoiceWithBacktracking(params bool[] alternatives)
         {
             return false;
         }
 
-        protected bool Choice_WithBacktracking_implementation(Func<bool>[] alternatives)
+        protected bool ChoiceWithBacktracking_implementation(Func<bool>[] alternatives)
         {
             Input.GotoPrintChar();
             if (alternatives == null || alternatives.Length <= 0)
@@ -1372,12 +1372,12 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Comsumes the input until it hits the end of the input.
+        /// Consumes the input until it hits the end of the input.
         /// </summary>
         /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
         ///                     the value is not stored in Result.</param>
         /// <returns>true.</returns>
-        public bool ReadUntilEof(string varName)
+        public bool SpanUntilEof(string varName)
         {
             StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
             for (char c = Input.GotoPrintChar(); c != '\0'; c = Input.Advance())
@@ -1389,11 +1389,11 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Comsumes the input until it hits the end of the input.
+        /// Consumes the input until it hits the end of the input.
         /// </summary>
         /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
         /// <returns>true.</returns>
-        public bool ReadUntilEof(Func<string, bool> consumingAction)
+        public bool SpanUntilEof(Func<string, bool> consumingAction)
         {
             StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
             for (char c = Input.GotoPrintChar(); c != '\0'; c = Input.Advance())
@@ -1402,6 +1402,36 @@ namespace SpeedyTools
             return value == null || consumingAction(value.ToString().Trim());
         }
 
+        /// <summary>
+        /// Consumes the input until it hits the end of the line.
+        /// </summary>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result.</param>
+        /// <returns>true.</returns>
+        public bool SpanUntilEoln(string varName)
+        {
+            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            for (char c = Input.GotoPrintCharInCurrentLine(); c != '\0' && c!= '\n'; c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            if (value != null)
+                Result.Add(varName, value.ToString().Trim());
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes the input until it hits the end of the line.
+        /// </summary>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>true.</returns>
+        public bool SpanUntilEoln(Func<string, bool> consumingAction)
+        {
+            StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
+            for (char c = Input.GotoPrintCharInCurrentLine(); c != '\0' && c != '\n'; c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            return value == null || consumingAction(value.ToString().Trim());
+        }
 
         /// <summary>
         /// Consumes the input until all conditions (passed in 2nd, 3rd, etc. parameters) become true.
@@ -1422,12 +1452,12 @@ namespace SpeedyTools
         ///                       the value is not stored in Result</param>
         /// <param name="body">expression(s) to be evaluated.</param>
         /// <returns>true</returns>
-        public bool SpanUntilCondition_WithBacktracking(string varName, params bool[] conditions)
+        public bool SpanUntilConditionWithBacktracking(string varName, params bool[] conditions)
         {
             return false;
         }
 
-        protected bool SpanUntilCondition_WithBacktracking_implementation(string varName, Func<bool>[] conditions)
+        protected bool SpanUntilConditionWithBacktracking_implementation(string varName, Func<bool>[] conditions)
         {
             Input.GotoPrintChar();
             if (conditions == null || conditions.Length <= 0)
@@ -1453,6 +1483,33 @@ namespace SpeedyTools
                     Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             return true;
+        }
+
+        /// <summary>
+        /// Returns true and moves input pointer after the prefix if the input starts with a string passed as a parameter. 
+        /// Otherwise returns false.
+        /// </summary>
+        /// <param name="prefix">the string to be tested.</param>
+        /// <returns>true/false.</returns>
+        public bool TestPrefix(string prefix)
+        {
+            Input.GotoPrintChar();
+            long savePos = Input.CurrentPos;
+            Input.BeginRecord();
+            try
+            {
+                for (int i = 0; i < prefix.Length; i++, Input.Advance())
+                    if (Input.CurrentChar() != prefix[i])
+                    {
+                        Input.GoToPos_Unsafe(savePos);
+                        return false;
+                    }
+                return true;
+            }
+            finally
+            {
+                Input.EndRecord();
+            }
         }
 
         /// <summary>
@@ -1943,6 +2000,18 @@ namespace SpeedyTools
                 char c;
                 while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
                     FCurrentPos++;
+                return c;
+            }
+
+            public char GotoPrintCharInCurrentLine()
+            {
+                char c;
+                while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
+                {
+                    if (c == '\n')
+                        return c;
+                    FCurrentPos++;
+                }
                 return c;
             }
 
