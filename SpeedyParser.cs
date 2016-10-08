@@ -211,7 +211,7 @@ namespace SpeedyTools
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">string to be parsed.</param>
-        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
         public bool TryMatch(string input)
         {
             StartMatching();
@@ -226,7 +226,7 @@ namespace SpeedyTools
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">lines to be parsed</param>
-        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
         public bool TryMatch(string[] inputLines)
         {
             int i_ln = 0;
@@ -244,7 +244,7 @@ namespace SpeedyTools
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">lines to be parsed</param>
-        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
         public bool TryMatch(IEnumerable<string> lines)
         {
             Func<string> readLine = null;
@@ -264,7 +264,7 @@ namespace SpeedyTools
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">lines to be parsed</param>
-        /// <returns>method returns true if input was succesfully parsed, otherwise returns false.</returns>
+        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
         public bool TryMatch(Func<string> readLine)
         {
             StartMatching();
@@ -1273,7 +1273,7 @@ namespace SpeedyTools
         /// the function passed as parameter.
         /// </summary>
         /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
-        /// <returns>method returns the value returned by consumingAction.</returns>
+        /// <returns>the value returned by consumingAction.</returns>
         public bool Span(Func<string, bool> consumingAction)
         {
             Input.GotoPrintChar();
@@ -1304,7 +1304,7 @@ namespace SpeedyTools
         ///                     otherwise does not</param>
         /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
         ///                     the value is not stored in Result</param>
-        /// <returns>true</returns>
+        /// <returns>true, if non-empty identifier was found</returns>
         public bool Identifier(bool mayStartWithDigit, string varName)
         {
             char c = Input.GotoPrintChar();
@@ -1325,7 +1325,7 @@ namespace SpeedyTools
         /// <param name="mayStartWithDigit">if true, the method can consume indentifier starting with digit(s),
         ///                     otherwise does not,</param>
         /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
-        /// <returns>method returns the value returned by consumingAction.</returns>
+        /// <returns>the value returned by consumingAction.</returns>
         public bool Identifier(bool mayStartWithDigit, Func<string, bool> consumingAction)
         {
             char c = Input.GotoPrintChar();
@@ -1335,7 +1335,7 @@ namespace SpeedyTools
             while (IsIdentChar(c = Input.Advance()))
                 if (value != null)
                     value.Append(c);
-            return value == null || consumingAction(value.ToString());
+            return consumingAction == null || consumingAction(value.ToString());
         }
 
         /// <summary>
@@ -1343,7 +1343,7 @@ namespace SpeedyTools
         /// </summary>
         /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
         ///                     the value is not stored in Result</param>
-        /// <returns>true, if the sequecne of printable characters is non-empty</returns>
+        /// <returns>true, if the sequence of printable characters is non-empty</returns>
         public bool Printable(string varName)
         {
             StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
@@ -1361,14 +1361,91 @@ namespace SpeedyTools
         /// as the argument of the function passed as parameter.
         /// </summary>
         /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
-        /// <returns>method returns the value returned by consumingAction.</returns>
+        /// <returns>the value returned by consumingAction.</returns>
         public bool Printable(Func<string, bool> consumingAction)
         {
             StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
             for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
                 if (value != null)
                     value.Append(c);
-            return value == null || consumingAction(value.ToString());
+            return consumingAction == null || consumingAction(value.ToString());
+        }
+
+        /// <summary>
+        /// Consumes the sequence of characters listed in the first parameter and stores it in variable. 
+        /// </summary>
+        /// <param name="characterList">the list of characters to be consumed,</param>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result</param>
+        /// <returns>true, if the sequence of printable characters is non-empty</returns>
+        public bool Characters(string characterList, string varName)
+        {
+            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            characterList = characterList ?? "";
+            for (char c = Input.GotoPrintChar(); c != '\0' && characterList.IndexOf(c) >= 0; c = Input.Advance())
+            {
+                if (value != null)
+                    value.Append(c);
+            }
+            if (value == null || value.Length <= 0)
+                return false;
+            Result.Add(varName, value.ToString());
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes the the sequence of characters listed in the first parameter and puts it as the argument 
+        /// of the function passed as the second parameter.
+        /// </summary>
+        /// <param name="characterList">the list of characters to be consumed,</param>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>the value returned by consumingAction.</returns>
+        public bool Characters(string characterList, Func<string, bool> consumingAction)
+        {
+            StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
+            characterList = characterList ?? "";
+            for (char c = Input.GotoPrintChar(); c != '\0' && characterList.IndexOf(c) >= 0; c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            return consumingAction == null || consumingAction(value.ToString());
+        }
+
+        /// <summary>
+        /// Consumes the the sequence of decimal letters and (optionally) other characters passed in the first parameter 
+        /// and stores it in variable. 
+        /// </summary>
+        /// <param name="extraChars">the list of characters to be consumed together with letters,</param>
+        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result</param>
+        /// <returns>true, if the sequence of printable characters is non-empty</returns>
+        public bool Letters(string extraChars, string varName)
+        {
+            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            extraChars = extraChars ?? "";
+            for (char c = Input.GotoPrintChar(); c != '\0' && (char.IsLetter(c) || extraChars.IndexOf(c) >= 0); c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            if (value == null || value.Length <= 0)
+                return false;
+            Result.Add(varName, value.ToString());
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes the the sequence of decimal letters and (optionally) other characters passed in the first parameter 
+        /// and puts it as the argument of the function passed as the second parameter.
+        /// </summary>
+        /// <param name="extraChars">the list of characters to be consumed together with letters,</param>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>the value returned by consumingAction.</returns>
+        public bool Letters(string extraChars, Func<string, bool> consumingAction)
+        {
+            StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
+            extraChars = extraChars ?? "";
+            for (char c = Input.GotoPrintChar(); c != '\0' && (char.IsLetter(c) || extraChars.IndexOf(c) >= 0); c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            return consumingAction == null || consumingAction(value.ToString());
         }
 
         /// <summary>
@@ -1399,7 +1476,7 @@ namespace SpeedyTools
             for (char c = Input.GotoPrintChar(); c != '\0'; c = Input.Advance())
                 if (value != null)
                     value.Append(c);
-            return value == null || consumingAction(value.ToString().Trim());
+            return consumingAction == null || consumingAction(value.ToString().Trim());
         }
 
         /// <summary>
@@ -1430,7 +1507,7 @@ namespace SpeedyTools
             for (char c = Input.GotoPrintCharInCurrentLine(); c != '\0' && c != '\n'; c = Input.Advance())
                 if (value != null)
                     value.Append(c);
-            return value == null || consumingAction(value.ToString().Trim());
+            return consumingAction == null || consumingAction(value.ToString().Trim());
         }
 
         /// <summary>
@@ -1510,6 +1587,29 @@ namespace SpeedyTools
             {
                 Input.EndRecord();
             }
+        }
+
+        /// <summary>
+        /// Calls a subexpression.
+        /// </summary>
+        /// <param name="subExpressionName">name of the subexpression to be called,</param>
+        /// <returns>the value returned by the subexpression.</returns>
+        public bool Call(string subExpressionName)
+        {
+            return Call(subExpressionName, null);
+        }
+
+        /// <summary>
+        /// Calls a subexpression.
+        /// </summary>
+        /// <param name="subExpressionName">name of the subexpression to be called,</param>
+        /// <param name="fold">folding function, which takes the last folding result in the first parameter (or null if
+        ///         no folding occured before) and </param>
+        /// <returns>the value returned by the subexpression.</returns>
+        public bool Call(string subExpressionName, Func<object, object, object> fold)
+        {
+            // todo 
+            return false;
         }
 
         /// <summary>
