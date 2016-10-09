@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Linq;
 using System.Linq.Expressions;
 
 /*
@@ -153,6 +154,7 @@ namespace SpeedyTools
 
         public ParserOptions Options = DefaultParserOptions;
         protected Func<SpeedyParser, bool> Body = null;
+        protected Dictionary<string, Func<SpeedyParser, bool>> SubExpressions = null;
         protected SentinelsList Sentinels;
         protected long FCounter = 0;
         protected long FLastLoopCounter = 0;
@@ -161,6 +163,7 @@ namespace SpeedyTools
 
         public ParserInput Input;
         public SpeedyParserResult Result = new SpeedyParserResult();
+        public object FoldResult = null;
         protected System.Collections.Concurrent.BlockingCollection<SpeedyParserResult> OutputCollection = null;
         protected List<SpeedyParserResult> OutputList = null;
 
@@ -172,12 +175,35 @@ namespace SpeedyTools
         /// Constructor. Constructor may be time-consuming, because it compiles the expression passed as a second parameter.
         /// </summary>
         /// <param name="parserOptions">parsing options,</param>
-        /// <param name="parserBody">expression describing how to parse the input</param>
+        /// <param name="parserBody">expression describing how to parse the input.</param>
         public SpeedyParser(ParserOptions parserOptions, Expression<Func<SpeedyParser, bool>> parserBody)
+            : this(parserOptions, parserBody, null)
+        {
+        }
+
+        /// <summary>
+        /// Constructor. Constructor may be time-consuming, because it compiles the expressions passed as 
+        /// a second and third parameter.
+        /// </summary>
+        /// <param name="parserOptions">parsing options,</param>
+        /// <param name="parserBody">expression describing how to parse the input,</param>
+        /// <param name="subExpressions">subexpressions.</param>
+        public SpeedyParser(ParserOptions parserOptions, Expression<Func<SpeedyParser, bool>> parserBody, 
+            Dictionary<string, Expression<Func<SpeedyParser, bool>>> subExpressions)
         {
             Options = parserOptions ?? DefaultParserOptions;
             var compiledExpression = (Expression<Func<SpeedyParser, bool>>)CompileExpression(parserBody);
             Body = compiledExpression.Compile();
+            if (subExpressions != null && subExpressions.Count > 0)
+            {
+                var x = (from kvp in subExpressions
+                        select new
+                        {
+                            Key = kvp.Key,
+                            Value = ((Expression<Func<SpeedyParser, bool>>)CompileExpression(kvp.Value)).Compile()
+                        }).ToDictionary(pair => pair.Key, pair => pair.Value);
+                SubExpressions = x;
+            }
         }
 
         /// <summary>
@@ -1931,6 +1957,17 @@ namespace SpeedyTools
             while (pos < pattern.Length && char.IsWhiteSpace(pattern[pos]))
                 pos++;
             return pos;
+        }
+
+        /// <summary>
+        /// Sets the FoldResult member to value passed in the parameter. 
+        /// </summary>
+        /// <param name="val">value.</param>
+        /// <returns>true.</returns>
+        public bool SetFoldResult(object val)
+        {
+            FoldResult = val;
+            return true;
         }
 
         /// <summary>
