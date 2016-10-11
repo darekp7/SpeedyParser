@@ -199,9 +199,9 @@ namespace SpeedyTools
                 var x = (from kvp in subExpressions
                         select new
                         {
-                            Key = kvp.Key,
-                            Value = ((Expression<Func<SpeedyParser, bool>>)CompileExpression(kvp.Value)).Compile()
-                        }).ToDictionary(pair => pair.Key, pair => pair.Value);
+                            StrKey = kvp.Key,
+                            ExprValue = ((Expression<Func<SpeedyParser, bool>>)CompileExpression(kvp.Value)).Compile()
+                        }).ToDictionary(pair => pair.StrKey, pair => pair.ExprValue);
                 SubExpressions = x;
             }
         }
@@ -377,6 +377,7 @@ namespace SpeedyTools
             FLastLoopCounter = 0;
             FIfTestSucceeded = false;
             FSucceeded = false;
+            FoldResult = null;
         }
 
         protected virtual Expression CompileExpression(Expression expr)
@@ -1164,6 +1165,7 @@ namespace SpeedyTools
             long savePos = Input.CurrentPos;
             var saveSent = Sentinels.Clone();
             var saveRes = Result.Clone();
+            var saveFold = FoldResult;
             Input.BeginRecord();
             try
             {
@@ -1173,6 +1175,7 @@ namespace SpeedyTools
                         return true;
                     Sentinels = saveSent;
                     Result = saveRes;
+                    FoldResult = saveFold;
                     Input.GoToPos_Unsafe(savePos);
                     if (i < alternatives.Length - 1)
                     {
@@ -1186,6 +1189,7 @@ namespace SpeedyTools
             {
                 Sentinels = saveSent;
                 Result = saveRes;
+                FoldResult = saveFold;
                 throw;
             }
             finally
@@ -1202,6 +1206,7 @@ namespace SpeedyTools
             long savePos = Input.CurrentPos;
             var saveSent = Sentinels.Clone();
             var saveRes = Result.Clone();
+            var saveFold = FoldResult;
             Input.BeginRecord();
             try
             {
@@ -1210,6 +1215,7 @@ namespace SpeedyTools
                     {
                         Sentinels = saveSent;
                         Result = saveRes;
+                        FoldResult = saveFold;
                         Input.GoToPos_Unsafe(savePos);
                         return false;
                     }
@@ -1219,6 +1225,7 @@ namespace SpeedyTools
             {
                 Sentinels = saveSent;
                 Result = saveRes;
+                FoldResult = saveFold;
                 throw;
             }
             finally
@@ -1622,7 +1629,8 @@ namespace SpeedyTools
         /// <returns>the value returned by the subexpression.</returns>
         public bool Call(string subExpressionName)
         {
-            return Call(subExpressionName, null);
+            Func<SpeedyParser, bool> val;
+            return (SubExpressions != null && SubExpressions.TryGetValue(subExpressionName, out val)) ? val(this) : false;
         }
 
         /// <summary>
@@ -1634,8 +1642,22 @@ namespace SpeedyTools
         /// <returns>the value returned by the subexpression.</returns>
         public bool Call(string subExpressionName, Func<object, object, object> fold)
         {
-            // todo 
-            return false;
+            object saveRes = FoldResult;
+            try
+            {
+                FoldResult = null;
+                if (Call(subExpressionName) && fold != null)
+                {
+                    FoldResult = fold(saveRes, FoldResult);
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                FoldResult = null;
+                throw;
+            }
         }
 
         /// <summary>
@@ -2676,16 +2698,32 @@ namespace SpeedyTools
             /// empty string is returned.
             /// </summary>
             /// <param name="varName">variable name</param>
-            /// <param name="inx">value index</param>
+            /// <param name="inx">value index (the index is Python-style, i.e. -1 is the index for the last element etc.)</param>
             /// <returns>variable value or empty string</returns>
             public string GetValue(string varName, int inx)
             {
                 if (RawData == null)
                     return "";
                 List<string> listOfValues;
-                if (!RawData.TryGetValue(varName, out listOfValues))
+                if (!RawData.TryGetValue(varName, out listOfValues) || listOfValues.Count <= 0)
                     return "";
-                return (inx >= 0 && inx < listOfValues.Count) ? listOfValues[inx] : "";
+                return listOfValues[((inx %= listOfValues.Count) < 0) ? inx + listOfValues.Count : inx];
+            }
+
+            /// <summary>
+            /// Clears all values for specified variable name.
+            /// </summary>
+            /// <param name="varName">variable name.</param>
+            /// <returns>true.</returns>
+            public bool ClearValues(string varName)
+            {
+                if (RawData != null)
+                {
+                    List<string> listOfValues;
+                    if (RawData.TryGetValue(varName, out listOfValues))
+                        listOfValues.Clear();
+                }
+                return true;
             }
 
             /// <summary>
