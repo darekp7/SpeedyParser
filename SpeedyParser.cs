@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Linq;
 using System.Linq.Expressions;
 
 /*
@@ -164,6 +163,7 @@ namespace SpeedyTools
         public ParserInput Input;
         public SpeedyParserResult Result = new SpeedyParserResult();
         public object FoldResult = null;
+        protected Dictionary<string, string> LocalVariables = null;
         protected System.Collections.Concurrent.BlockingCollection<SpeedyParserResult> OutputCollection = null;
         protected List<SpeedyParserResult> OutputList = null;
 
@@ -196,13 +196,9 @@ namespace SpeedyTools
             Body = compiledExpression.Compile();
             if (subExpressions != null && subExpressions.Count > 0)
             {
-                var x = (from kvp in subExpressions
-                        select new
-                        {
-                            StrKey = kvp.Key,
-                            ExprValue = ((Expression<Func<SpeedyParser, bool>>)CompileExpression(kvp.Value)).Compile()
-                        }).ToDictionary(pair => pair.StrKey, pair => pair.ExprValue);
-                SubExpressions = x;
+                SubExpressions = new Dictionary<string, Func<SpeedyParser, bool>>();
+                foreach(var kvp in subExpressions)
+                    SubExpressions[kvp.Key] = ((Expression<Func<SpeedyParser, bool>>)CompileExpression(kvp.Value)).Compile();
             }
         }
 
@@ -377,6 +373,7 @@ namespace SpeedyTools
             FLastLoopCounter = 0;
             FIfTestSucceeded = false;
             FSucceeded = false;
+            LocalVariables = null;
             FoldResult = null;
         }
 
@@ -1268,9 +1265,37 @@ namespace SpeedyTools
             return true;
         }
 
-        protected static bool VarValueIsSkipable(string varName)
+        protected static bool VarNameIsSkipable(string varName)
         {
             return varName == null || (varName = varName.Trim()) == "" || varName[0] == '_';
+        }
+
+        /// <summary>
+        /// If varName starts with $ sign, sets the value of the local variable. Otherwise adds it into 
+        /// Result class member.
+        /// </summary>
+        /// <param name="varName">variable name</param>
+        /// <param name="varValue">variable value</param>
+        public void SetVariable(string varName, string varValue)
+        {
+            if (varName != null && varName != "" && varName[0] == '$')
+                (LocalVariables = LocalVariables ?? new Dictionary<string, string>())[varName] = varValue;
+            else if(!VarNameIsSkipable(varName))
+                Result.Add(varName, varValue);
+        }
+
+        /// <summary>
+        /// If varName starts with $ sign, the method returns the value of the local variable. Otherwise returns 
+        /// last value for varName in Result class member.
+        /// </summary>
+        /// <param name="varName">variable name</param>
+        /// <returns>variable value or empty string if the value wasn't found</returns>
+        public string GetVariable(string varName)
+        {
+            if (varName != null && varName != "" && varName[0] == '$')
+                return (LocalVariables != null && LocalVariables.ContainsKey(varName))? LocalVariables[varName] : "";
+            else 
+                return Result.GetValue(varName, -1);
         }
 
         /// <summary>
@@ -1282,7 +1307,7 @@ namespace SpeedyTools
         public bool Span(string varName)
         {
             Input.GotoPrintChar();
-            bool recording = !VarValueIsSkipable(varName);
+            bool recording = !VarNameIsSkipable(varName);
             if (recording)
                 Input.BeginRecord();
             try
@@ -1291,7 +1316,7 @@ namespace SpeedyTools
                 while (Input.GotoPrintChar() != '\0' && !PointsAtSentinel())
                     GotoNextMatchingPos();
                 if (recording)
-                    Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
+                    SetVariable(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             finally
             {
@@ -1343,12 +1368,12 @@ namespace SpeedyTools
             char c = Input.GotoPrintChar();
             if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
                 return false;
-            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder(c);
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder(c);
             while (IsIdentChar(c = Input.Advance()))
                 if (value != null)
                     value.Append(c);
             if (value != null)
-                Result.Add(varName, value.ToString());
+                SetVariable(varName, value.ToString());
             return true;
         }
 
@@ -1379,13 +1404,13 @@ namespace SpeedyTools
         /// <returns>true, if the sequence of printable characters is non-empty</returns>
         public bool Printable(string varName)
         {
-            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
             for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
                 if (value != null)
                     value.Append(c);
             if (value == null || value.Length <= 0)
                 return false;
-            Result.Add(varName, value.ToString());
+            SetVariable(varName, value.ToString());
             return true;
         }
 
@@ -1413,7 +1438,7 @@ namespace SpeedyTools
         /// <returns>true, if the sequence of printable characters is non-empty</returns>
         public bool Characters(string characterList, string varName)
         {
-            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
             characterList = characterList ?? "";
             for (char c = Input.GotoPrintChar(); c != '\0' && characterList.IndexOf(c) >= 0; c = Input.Advance())
             {
@@ -1422,7 +1447,7 @@ namespace SpeedyTools
             }
             if (value == null || value.Length <= 0)
                 return false;
-            Result.Add(varName, value.ToString());
+            SetVariable(varName, value.ToString());
             return true;
         }
 
@@ -1453,14 +1478,14 @@ namespace SpeedyTools
         /// <returns>true, if the sequence of printable characters is non-empty</returns>
         public bool Letters(string extraChars, string varName)
         {
-            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
             extraChars = extraChars ?? "";
             for (char c = Input.GotoPrintChar(); c != '\0' && (char.IsLetter(c) || extraChars.IndexOf(c) >= 0); c = Input.Advance())
                 if (value != null)
                     value.Append(c);
             if (value == null || value.Length <= 0)
                 return false;
-            Result.Add(varName, value.ToString());
+            SetVariable(varName, value.ToString());
             return true;
         }
 
@@ -1489,12 +1514,12 @@ namespace SpeedyTools
         /// <returns>true.</returns>
         public bool SpanUntilEof(string varName)
         {
-            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
             for (char c = Input.GotoPrintChar(); c != '\0'; c = Input.Advance())
                 if (value != null)
                     value.Append(c);
             if (value != null)
-                Result.Add(varName, value.ToString().Trim());
+                SetVariable(varName, value.ToString().Trim());
             return true;
         }
 
@@ -1520,12 +1545,12 @@ namespace SpeedyTools
         /// <returns>true.</returns>
         public bool SpanUntilEoln(string varName)
         {
-            StringBuilder value = VarValueIsSkipable(varName) ? null : new StringBuilder();
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
             for (char c = Input.GotoPrintCharInCurrentLine(); c != '\0' && c!= '\n'; c = Input.Advance())
                 if (value != null)
                     value.Append(c);
             if (value != null)
-                Result.Add(varName, value.ToString().Trim());
+                SetVariable(varName, value.ToString().Trim());
             return true;
         }
 
@@ -1551,7 +1576,7 @@ namespace SpeedyTools
         /// matching position (a matching position is the begin of identifier and/or any other non-identifier 
         /// printable char). 
         /// 
-        /// NOTE1: Although the parser restores input position and the value of the Result class member, unfortunatelly, 
+        /// NOTE1: Although the parser restores input position, local v and the value of the Result class member, unfortunatelly, 
         /// it cannot undo other side-effects occurred during evaluation of condition(s). Therefore, using Yield() 
         /// and/or other having side-effects conditions seems to be in most cases a bad idea.
         /// 
@@ -1567,30 +1592,44 @@ namespace SpeedyTools
             return false;
         }
 
+        protected static Dictionary<string, string> CloneDict(Dictionary<string, string> dict)
+        {
+            if (dict == null)
+                return null;
+            var res = new Dictionary<string, string>();
+            foreach (var kv in dict)
+                res[kv.Key] = kv.Value;
+            return res;
+        }
+
         protected bool SpanUntilConditionWithBacktracking_implementation(string varName, Func<bool>[] conditions)
         {
             Input.GotoPrintChar();
             if (conditions == null || conditions.Length <= 0)
                 return true;
 
-            bool recording = !VarValueIsSkipable(varName);
+            bool recording = !VarNameIsSkipable(varName);
+            var saveLocalVariables = (!recording)? null : CloneDict(LocalVariables);
             var saveRes = new SpeedyParserResult();
             long startPos = Input.CurrentPos;
+
             if (recording)
             {
                 saveRes = Result.Clone();
-                Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
+                SetVariable(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
-
             while (!ConditionAndWithBacktrackingImplementation(conditions: conditions))
             {
                 if (recording)
+                {
                     Result = saveRes.Clone();
+                    LocalVariables = CloneDict(saveLocalVariables);
+                }
                 if (Input.GotoPrintChar() == '\0')
                     return false;
                 GotoNextMatchingPos();
                 if (recording)
-                    Result.Add(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
+                    SetVariable(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             return true;
         }
@@ -1947,10 +1986,10 @@ namespace SpeedyTools
             if (consumeInput && endPos + 2 < sentinel.Length)
             {
                 string varName = sentinel.Substring(endPos + 2).Trim();
-                if (varName != "" && varName[0] != '_')
+                if (!VarNameIsSkipable(varName))
                 {
                     string varValue = sentinel.Substring(0, endPos).Trim();
-                    Result.Add(varName, varValue);
+                    SetVariable(varName, varValue);
                 }
             }
             return true;
