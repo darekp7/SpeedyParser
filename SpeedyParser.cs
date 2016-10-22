@@ -158,12 +158,10 @@ namespace SpeedyTools
         protected long FCounter = 0;
         protected long FLastLoopCounter = 0;
         protected bool FIf_status = false;
-        protected bool FSucceeded = false;
 
         public ParserInput Input;
-        public SpeedyParserResult Result = new SpeedyParserResult();
-        public object FoldResult = null;
         protected Dictionary<string, string> LocalVariables = null;
+        protected SpeedyParserResult Result = new SpeedyParserResult();
         protected System.Collections.Concurrent.BlockingCollection<SpeedyParserResult> OutputCollection = null;
         protected List<SpeedyParserResult> OutputList = null;
 
@@ -206,23 +204,35 @@ namespace SpeedyTools
         /// Makes copy of the current object. Useful in multithreading because SpeedyParser is not thread safe. 
         /// </summary>
         /// <returns>copy of the current object.</returns>
-        public SpeedyParser Duplicate()
+        protected virtual SpeedyParser CreateRunInstance(string str, Func<string> readNextLine, int pos)
         {
             var res = new SpeedyParser();
-            res.Body = Body;
             res.Options = Options;
+            res.Body = Body;
+            res.SubExpressions = SubExpressions;
             res.Sentinels = Sentinels.Clone();
+            res.Sentinels.StartMatching();
+
+            res.Input = new ParserInput(res, str, readNextLine, pos);
+
+            res.Result.Clear();
+            res.FCounter = 0;
+            res.FLastLoopCounter = 0;
+            res.FIf_status = false;
+            res.LocalVariables = null;
+            res.OutputCollection = null;
+            res.OutputList = null;
             return res;
         }
 
         /// <summary>
         /// Returns information if last act of parsing succeeded
         /// </summary>
-        public bool Succeeded
+        public bool Success
         {
             get
             {
-                return FSucceeded;
+                return Result.Success;
             }
         }
 
@@ -233,12 +243,13 @@ namespace SpeedyTools
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
         /// <param name="input">string to be parsed.</param>
-        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
-        public bool TryMatch(string input)
+        /// <returns>a SpeedyParserResult value with the Success member set to true if input was succesfully parsed, 
+        ///          otherwise set to false.</returns>
+        public SpeedyParserResult TryMatch(string input)
         {
-            StartMatching();
-            Input = new ParserInput(this, input, null, 0);
-            return FSucceeded = Body(this);
+            var runner = CreateRunInstance(input, null, 0);
+            runner.Result.Success = runner.Body(runner);
+            return runner.Result;
         }
 
         /// <summary>
@@ -247,9 +258,10 @@ namespace SpeedyTools
         /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
-        /// <param name="input">lines to be parsed</param>
-        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
-        public bool TryMatch(string[] inputLines)
+        /// <param name="input">lines to be parsed.</param>
+        /// <returns>a SpeedyParserResult value with the Success member set to true if input was succesfully parsed, 
+        ///          otherwise set to false.</returns>
+        public SpeedyParserResult TryMatch(string[] inputLines)
         {
             int i_ln = 0;
             Func<string> readLine = null;
@@ -265,9 +277,10 @@ namespace SpeedyTools
         /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
-        /// <param name="input">lines to be parsed</param>
-        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
-        public bool TryMatch(IEnumerable<string> lines)
+        /// <param name="input">lines to be parsed.</param>
+        /// <returns>a SpeedyParserResult value with the Success member set to true if input was succesfully parsed, 
+        ///          otherwise set to false.</returns>
+        public SpeedyParserResult TryMatch(IEnumerable<string> lines)
         {
             Func<string> readLine = null;
             if (lines != null)
@@ -285,13 +298,14 @@ namespace SpeedyTools
         /// If the parsing expression contains Yield(), the result may be incomplete i.e. the result may contain
         /// (and typically will do) only the last yielded set of variables.
         /// </summary>
-        /// <param name="input">lines to be parsed</param>
-        /// <returns>true if input was succesfully parsed, otherwise false.</returns>
-        public bool TryMatch(Func<string> readLine)
+        /// <param name="input">lines to be parsed.</param>
+        /// <returns>a SpeedyParserResult value with the Success member set to true if input was succesfully parsed, 
+        ///          otherwise set to false.</returns>
+        public SpeedyParserResult TryMatch(Func<string> readLine)
         {
-            StartMatching();
-            Input = new ParserInput(this, "", readLine, 0);
-            return FSucceeded = Body(this);
+            var runner = CreateRunInstance("", readLine, 0);
+            runner.Result.Success = runner.Body(runner);
+            return runner.Result;
         }
 
         /// <summary>
@@ -299,7 +313,7 @@ namespace SpeedyTools
         /// Result class member). 
         /// If parsing fails, method stores false in Succeeded property, otherwise stores true.
         /// </summary>
-        /// <param name="input">lines to be parsed</param>
+        /// <param name="input">lines to be parsed.</param>
         /// <param name="succeeded">true if parser expression returned true, otherwise false</param>
         /// <returns>the enumerator</returns>
         public IEnumerable<SpeedyParserResult> TryMatchLoop(IEnumerable<string> lines)
@@ -324,15 +338,14 @@ namespace SpeedyTools
         /// <returns>the enumerator</returns>
         public IEnumerable<SpeedyParserResult> TryMatchLoop(string input)
         {
-            StartMatching();
-            Input = new ParserInput(this, input, null, 0);
-            FSucceeded = Body(this);
-            if (FSucceeded)
-                if (OutputList != null)
-                    foreach (var item in OutputList)
+            var runner = CreateRunInstance(input, null, 0);
+            runner.Result.Success = runner.Body(this);
+            if (runner.Result.Success)
+                if (runner.OutputList != null)
+                    foreach (var item in runner.OutputList)
                         yield return item;
                 else
-                    yield return Result;
+                    yield return runner.Result;
         }
 
         /// <summary>
@@ -347,14 +360,13 @@ namespace SpeedyTools
             // https://msdn.microsoft.com/en-us/library/dd267312.aspx
             // http://www.codethinked.com/blockingcollection-and-iproducerconsumercollection
 
-            StartMatching();
+            var runner = CreateRunInstance("", readLine, 0);
             using (var bc = new System.Collections.Concurrent.BlockingCollection<SpeedyParserResult>())
             {
-                OutputCollection = bc;
+                runner.OutputCollection = bc;
                 using (var task = System.Threading.Tasks.Task.Factory.StartNew(() =>
                 {
-                    Input = new ParserInput(this, "", readLine, 0);
-                    FSucceeded = Body(this);
+                    runner.Result.Success = runner.Body(runner);
                     bc.CompleteAdding();
                 }))
                 {
@@ -363,18 +375,6 @@ namespace SpeedyTools
                     System.Threading.Tasks.Task.WaitAll(task);
                 }
             }
-        }
-
-        protected void StartMatching()
-        {
-            Sentinels.StartMatching();
-            Result.Clear();
-            FCounter = 0;
-            FLastLoopCounter = 0;
-            FIf_status = false;
-            FSucceeded = false;
-            LocalVariables = null;
-            FoldResult = null;
         }
 
         protected virtual Expression CompileExpression(Expression expr)
@@ -1163,7 +1163,6 @@ namespace SpeedyTools
             bool saveIf_status = FIf_status;
             var saveSent = Sentinels.Clone();
             var saveRes = Result.Clone();
-            var saveFold = FoldResult;
             Input.BeginRecord();
             try
             {
@@ -1173,7 +1172,6 @@ namespace SpeedyTools
                         return true;
                     Sentinels = saveSent;
                     Result = saveRes;
-                    FoldResult = saveFold;
                     Input.GoToPos_Unsafe(savePos);
                     if (i < alternatives.Length - 1)
                     {
@@ -1187,7 +1185,6 @@ namespace SpeedyTools
             {
                 Sentinels = saveSent;
                 Result = saveRes;
-                FoldResult = saveFold;
                 throw;
             }
             finally
@@ -1206,7 +1203,6 @@ namespace SpeedyTools
             bool saveIf_status = FIf_status;
             var saveSent = Sentinels.Clone();
             var saveRes = Result.Clone();
-            var saveFold = FoldResult;
             Input.BeginRecord();
             try
             {
@@ -1215,7 +1211,6 @@ namespace SpeedyTools
                     {
                         Sentinels = saveSent;
                         Result = saveRes;
-                        FoldResult = saveFold;
                         Input.GoToPos_Unsafe(savePos);
                         return false;
                     }
@@ -1225,7 +1220,6 @@ namespace SpeedyTools
             {
                 Sentinels = saveSent;
                 Result = saveRes;
-                FoldResult = saveFold;
                 throw;
             }
             finally
@@ -1693,21 +1687,21 @@ namespace SpeedyTools
         /// <returns>the value returned by the subexpression.</returns>
         public bool Call(string subExpressionName, Func<object, object, object> fold)
         {
-            object saveRes = FoldResult;
+            object saveRes = Result.FoldResult;
             bool saveIf_status = FIf_status;
             try
             {
-                FoldResult = null;
+                Result.FoldResult = null;
                 if (Call(subExpressionName) && fold != null)
                 {
-                    FoldResult = fold(saveRes, FoldResult);
+                    Result.FoldResult = fold(saveRes, Result.FoldResult);
                     return true;
                 }
                 return false;
             }
             catch (Exception)
             {
-                FoldResult = null;
+                Result.FoldResult = null;
                 throw;
             }
             finally
@@ -2044,7 +2038,7 @@ namespace SpeedyTools
         /// <returns>true.</returns>
         public bool SetFoldResult(object val)
         {
-            FoldResult = val;
+            Result.FoldResult = val;
             return true;
         }
 
@@ -2698,14 +2692,25 @@ namespace SpeedyTools
         public struct SpeedyParserResult
         {
             /// <summary>
+            /// True if the match was successful, otherwise false.
+            /// </summary>
+            public bool Success;
+
+            /// <summary>
             /// List of variables and values used internally by the class. 
             /// </summary>
             public Dictionary<string, List<string>> RawData;
 
+            /// <summary>
+            /// Result of folding (folding is an action executed after the calling an subexpression).
+            /// </summary>
+            public object FoldResult;
+
             public SpeedyParserResult Clone()
             {
                 var rawdataCopy = (RawData == null) ? new Dictionary<string, List<string>>() : new Dictionary<string, List<string>>(RawData);
-                return new SpeedyParserResult { RawData = rawdataCopy };
+                var fr = FoldResult;
+                return new SpeedyParserResult { Success = Success,  RawData = rawdataCopy, FoldResult = FoldResult };
             }
 
             /// <summary>
@@ -2733,8 +2738,10 @@ namespace SpeedyTools
             /// <returns>true.</returns>
             public bool Clear()
             {
+                Success = false;
                 if (RawData != null)
                     RawData.Clear();
+                FoldResult = null;
                 return true;
             }
 
