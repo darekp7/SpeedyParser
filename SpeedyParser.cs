@@ -1297,11 +1297,12 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Consumes the input up to the first active sentinel or input's eof and stores it in variable 
+        /// Consumes the input up to the first active sentinel or input's eof and stores it in variable.
         /// </summary>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                       the value is not stored in Result</param>
-        /// <returns>true</returns>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true.</returns>
         public bool Span(string varName)
         {
             Input.GotoPrintChar();
@@ -1357,10 +1358,11 @@ namespace SpeedyTools
         /// Consumes the identifier and stores it in variable. 
         /// </summary>
         /// <param name="mayStartWithDigit">if true, the method can consume indentifier starting with digit(s),
-        ///                     otherwise does not</param>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result</param>
-        /// <returns>true, if non-empty identifier was found</returns>
+        ///                     otherwise does not.</param>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true, if non-empty identifier was found.</returns>
         public bool Identifier(bool mayStartWithDigit, string varName)
         {
             char c = Input.GotoPrintChar();
@@ -1397,19 +1399,13 @@ namespace SpeedyTools
         /// <summary>
         /// Consumes the sequence of printable (i.e. non-whitespace) characters and stores it in variable. 
         /// </summary>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result</param>
-        /// <returns>true, if the sequence of printable characters is non-empty</returns>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true, if the sequence of printable characters is non-empty.</returns>
         public bool Printable(string varName)
         {
-            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
-            for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
-                if (value != null)
-                    value.Append(c);
-            if (value == null || value.Length <= 0)
-                return false;
-            SetVariable(varName, value.ToString());
-            return true;
+            return PrintableNotContaining("", varName);
         }
 
         /// <summary>
@@ -1420,8 +1416,44 @@ namespace SpeedyTools
         /// <returns>the value returned by consumingAction.</returns>
         public bool Printable(Func<string, bool> consumingAction)
         {
+            return PrintableNotContaining("", consumingAction);
+        }
+
+        /// <summary>
+        /// Consumes the sequence of printable (i.e. non-whitespace) characters and stores it in variable. 
+        /// The consumming is stopped if the parser meets one of characters listed in charsetNot parameter.
+        /// </summary>
+        /// <param name="charsetNot">list of non-consumeable characters,</param>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true, if the sequence of printable characters is non-empty.</returns>
+        public bool PrintableNotContaining(string charsetNot, string varName)
+        {
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
+            charsetNot = charsetNot ?? "";
+            for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c) && charsetNot.IndexOf(c) < 0; c = Input.Advance())
+                if (value != null)
+                    value.Append(c);
+            if (value == null || value.Length <= 0)
+                return false;
+            SetVariable(varName, value.ToString());
+            return true;
+        }
+
+        /// <summary>
+        /// Consumes the the sequence of printable (i.e. non-whitespace) characters and puts it as the argument 
+        /// of the function passed as parameter.
+        /// The consumming is stopped if the parser meets one of characters listed in charsetNot parameter.
+        /// </summary>
+        /// <param name="charsetNot">list of non-consumeable characters,</param>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>the value returned by consumingAction.</returns>
+        public bool PrintableNotContaining(string charsetNot, Func<string, bool> consumingAction)
+        {
             StringBuilder value = (consumingAction != null) ? new StringBuilder() : null;
-            for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c); c = Input.Advance())
+            charsetNot = charsetNot ?? "";
+            for (char c = Input.GotoPrintChar(); c != '\0' && !char.IsWhiteSpace(c) && charsetNot.IndexOf(c) < 0; c = Input.Advance())
                 if (value != null)
                     value.Append(c);
             return consumingAction == null || consumingAction(value.ToString());
@@ -1431,9 +1463,10 @@ namespace SpeedyTools
         /// Consumes the sequence of characters listed in the first parameter and stores it in variable. 
         /// </summary>
         /// <param name="characterList">the list of characters to be consumed,</param>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result</param>
-        /// <returns>true, if the sequence of printable characters is non-empty</returns>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true, if the sequence of printable characters is non-empty.</returns>
         public bool Characters(string characterList, string varName)
         {
             StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
@@ -1471,9 +1504,10 @@ namespace SpeedyTools
         /// and stores it in variable. 
         /// </summary>
         /// <param name="extraChars">the list of characters to be consumed together with letters,</param>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result</param>
-        /// <returns>true, if the sequence of printable characters is non-empty</returns>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true, if the sequence of printable characters is non-empty.</returns>
         public bool Letters(string extraChars, string varName)
         {
             StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
@@ -1507,8 +1541,9 @@ namespace SpeedyTools
         /// <summary>
         /// Consumes the input until it hits the end of the input.
         /// </summary>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result.</param>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
         /// <returns>true.</returns>
         public bool SpanUntilEof(string varName)
         {
@@ -1538,8 +1573,9 @@ namespace SpeedyTools
         /// <summary>
         /// Consumes the input until it hits the end of the line.
         /// </summary>
-        /// <param name="varName">name of variable, if the name is empty or starts with underscore ('_'), 
-        ///                     the value is not stored in Result.</param>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
         /// <returns>true.</returns>
         public bool SpanUntilEoln(string varName)
         {
