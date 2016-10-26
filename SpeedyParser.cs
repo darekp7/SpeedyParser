@@ -201,7 +201,7 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Makes copy of the current object. Useful in multithreading because SpeedyParser is not thread safe. 
+        /// Makes copy of the current object. This copy is used during matching. 
         /// </summary>
         /// <returns>copy of the current object.</returns>
         protected virtual SpeedyParser CreateRunInstance(string str, Func<string> readNextLine, int pos)
@@ -1669,33 +1669,6 @@ namespace SpeedyTools
         }
 
         /// <summary>
-        /// Returns true and moves input pointer after the prefix if the input starts with a string passed as a parameter. 
-        /// Otherwise returns false.
-        /// </summary>
-        /// <param name="prefix">the string to be tested.</param>
-        /// <returns>true/false.</returns>
-        public bool TestPrefix(string prefix)
-        {
-            Input.GotoPrintChar();
-            long savePos = Input.CurrentPos;
-            Input.BeginRecord();
-            try
-            {
-                for (int i = 0; i < prefix.Length; i++, Input.Advance())
-                    if (Input.CurrentChar() != prefix[i])
-                    {
-                        Input.GoToPos_Unsafe(savePos);
-                        return false;
-                    }
-                return true;
-            }
-            finally
-            {
-                Input.EndRecord();
-            }
-        }
-
-        /// <summary>
         /// Calls a subexpression.
         /// </summary>
         /// <param name="subExpressionName">name of the subexpression to be called,</param>
@@ -2238,6 +2211,33 @@ namespace SpeedyTools
                     AddComment(commItem);
                 }
                 return c;
+            }
+
+            /// <summary>
+            /// Returns true and moves input pointer after the prefix if the input starts with a string passed as a parameter. 
+            /// Otherwise returns false.
+            /// </summary>
+            /// <param name="prefix">the string to be tested.</param>
+            /// <returns>true/false.</returns>
+            public bool TestPrefix(string prefix)
+            {
+                GotoPrintChar();
+                long savePos = CurrentPos;
+                BeginRecord();
+                try
+                {
+                    for (int i = 0; i < prefix.Length; i++, Advance())
+                        if (CurrentChar() != prefix[i])
+                        {
+                            GoToPos_Unsafe(savePos);
+                            return false;
+                        }
+                    return true;
+                }
+                finally
+                {
+                    EndRecord();
+                }
             }
 
             private char GotoPrintChar_Basic()
