@@ -1538,16 +1538,22 @@ namespace SpeedyTools
             return consumingAction == null || consumingAction(value.ToString());
         }
 
+        /// <summary>
+        /// Consumes the string literal.
+        /// </summary>
+        /// <param name="varName">name of the variable: if the name is empty or starts with underscore ('_'), 
+        ///                     the value is not stored in Result, if the name starts with dollar sign ('$'),
+        ///                     the value is stored in the local variable.</param>
+        /// <returns>true if the string literal was succesfully parsed, otherwise false.</returns>
         public bool StringLiteral(string varName)
         {
             StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder();
-            switch (Input.GotoPrintChar())
+            char c = Input.GotoPrintChar(); 
+            switch (c)
             {
                 case '\'':
-                    GotoClosingQuote('\'', value, null);
-                    break;
                 case '"':
-                    GotoClosingQuote('"', value, null);
+                    GotoClosingQuote(c, value, null);
                     break;
                 default:
                     return false;
@@ -1555,6 +1561,27 @@ namespace SpeedyTools
             if(value != null)
                 SetVariable(varName, value.ToString());
             return true;
+        }
+
+        /// <summary>
+        /// Consumes the string literal.
+        /// </summary>
+        /// <param name="consumingAction">the action which takes consumed input as a parameter.</param>
+        /// <returns>false if the string literal wasn't successfully parsed, otherwise the value returned by consumingAction.</returns>
+        public bool StringLiteral(Func<string, bool> consumingAction)
+        {
+            StringBuilder value = (consumingAction != null)? new StringBuilder() : null;
+            char c = Input.GotoPrintChar();
+            switch (c)
+            {
+                case '\'':
+                case '"':
+                    GotoClosingQuote(c, value, null);
+                    break;
+                default:
+                    return false;
+            }
+            return consumingAction == null || consumingAction(value.ToString());
         }
 
         /// <summary>
@@ -2260,6 +2287,41 @@ namespace SpeedyTools
                 return c;
             }
 
+            private char GotoPrintChar_Basic()
+            {
+                char c;
+                while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
+                    FCurrentPos++;
+                return c;
+            }
+
+            public char GotoPrintCharInCurrentLine()
+            {
+                char c;
+                while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
+                {
+                    if (c == '\n')
+                        return c;
+                    FCurrentPos++;
+                }
+                return c;
+            }
+
+            public char CurrentChar() // NOTE: this should NOT BE a property because of unwanted side-effect during debugging
+            {
+                return GetCharAt(FCurrentPos);
+            }
+
+            public bool CharBeforeCurrentPosIsIdentChar()
+            {
+                return (FCurrentPos <= FCurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
+            }
+
+            public bool NextCharIs(char c)
+            {
+                return GetCharAt(CurrentPos + 1) == c;
+            }
+
             /// <summary>
             /// Returns true and moves input pointer after the prefix if the input starts with a string passed as a parameter. 
             /// Otherwise returns false.
@@ -2285,41 +2347,6 @@ namespace SpeedyTools
                 {
                     EndRecord();
                 }
-            }
-
-            private char GotoPrintChar_Basic()
-            {
-                char c;
-                while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
-                    FCurrentPos++;
-                return c;
-            }
-
-            public char GotoPrintCharInCurrentLine()
-            {
-                char c;
-                while ((c = CurrentChar()) != '\0' && char.IsWhiteSpace(c))
-                {
-                    if (c == '\n')
-                        return c;
-                    FCurrentPos++;
-                }
-                return c;
-            }
-
-            public bool CharBeforeCurrentPosIsIdentChar()
-            {
-                return (FCurrentPos <= FCurrentLineStart) ? false : Owner.IsIdentChar(GetCharAt(FCurrentPos - 1));
-            }
-
-            public char CurrentChar() // NOTE: this should NOT BE a property because of unwanted side-effect during debugging
-            {
-                return GetCharAt(FCurrentPos);
-            }
-
-            public bool NextCharIs(char c)
-            {
-                return GetCharAt(CurrentPos + 1) == c;
             }
 
             public char GetCharAt(long pos)
