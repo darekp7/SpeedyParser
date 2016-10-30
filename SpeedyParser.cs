@@ -1553,7 +1553,12 @@ namespace SpeedyTools
             {
                 case '\'':
                 case '"':
-                    GotoClosingQuote(c, value, null);
+                    if (GetQuoteSensitivity(c) == QuoteSensitivity.Insensitive)
+                        Input.Advance();
+                    else if (GotoClosingQuote(c, value, null))
+                        Input.Advance(); // eat terminating quote
+                    else
+                        return false;
                     break;
                 default:
                     return false;
@@ -1576,7 +1581,12 @@ namespace SpeedyTools
             {
                 case '\'':
                 case '"':
-                    GotoClosingQuote(c, value, null);
+                    if (GetQuoteSensitivity(c) == QuoteSensitivity.Insensitive)
+                        Input.Advance();
+                    else if (GotoClosingQuote(c, value, null))
+                        Input.Advance(); // eat terminating quote
+                    else
+                        return false;
                     break;
                 default:
                     return false;
@@ -1795,13 +1805,15 @@ namespace SpeedyTools
 
         protected void GotoNextMatchingPos()
         {
-            switch (Input.GotoPrintChar())
+            switch (Input.CurrentChar())
             {
                 case '\'':
-                    GotoClosingQuote('\'', null, Options.OnMissingClosingQuote);
+                    if(GotoClosingQuote('\'', null, Options.OnMissingClosingQuote))
+                        Input.Advance();
                     break;
                 case '"':
-                    GotoClosingQuote('"', null, Options.OnMissingClosingQuote);
+                    if(GotoClosingQuote('"', null, Options.OnMissingClosingQuote))
+                        Input.Advance();
                     break;
                 case '(':
                     if (Options.IsBracketSensitive)
@@ -1861,19 +1873,25 @@ namespace SpeedyTools
                 throw exc2;
         }
 
+        protected QuoteSensitivity GetQuoteSensitivity(char closing_quote)
+        {
+            return (closing_quote == '\'') ? Options.SingleQuoteSensitivity : Options.DoubleQuoteSensitivity;
+        }
+
         /// <summary>
         /// Finds the end of string literal.
         /// </summary>
         /// <param name="closing_quote">either '\"' or '\'',</param>
         /// <param name="value">the string between quotes (with escape characters if original string contains them).</param>
         /// <param name="onMissingClosingQuote">action OnMissingClosingQuote.</param>
-        protected void GotoClosingQuote(char closing_quote, StringBuilder value, Func<SpeedyParser, Exception> onMissingClosingQuote)
+        /// <returns>true if end of sring literal was found, otherwise false.</returns>
+        protected bool GotoClosingQuote(char closing_quote, StringBuilder value, Func<SpeedyParser, Exception> onMissingClosingQuote)
         {
             char c;
-            switch ((closing_quote == '\'') ? Options.SingleQuoteSensitivity : Options.DoubleQuoteSensitivity)
+            switch (GetQuoteSensitivity(closing_quote))
             {
                 case QuoteSensitivity.Insensitive:
-                    return;
+                    return false;
                 case QuoteSensitivity.Sensitive:
                     while ((c = Input.Advance()) != closing_quote)
                         switch (c)
@@ -1882,13 +1900,13 @@ namespace SpeedyTools
                                 Exception exc;
                                 if (onMissingClosingQuote != null && (exc = onMissingClosingQuote(this)) != null)
                                     throw exc;
-                                return;
+                                return false;
                             default:
                                 if (value != null)
                                     value.Append(c);
                                 break;
                         }
-                    return;
+                    return true;
                 case QuoteSensitivity.CSharpLike:
                     while ((c = Input.Advance()) != closing_quote)
                         switch (c)
@@ -1897,7 +1915,7 @@ namespace SpeedyTools
                                 Exception exc;
                                 if (onMissingClosingQuote != null && (exc = onMissingClosingQuote(this)) != null)
                                     throw exc;
-                                return;
+                                return false;
                             case '\\':
                                 if (value != null)
                                     value.Append(c);
@@ -1910,13 +1928,13 @@ namespace SpeedyTools
                                     value.Append(c);
                                 break;
                         }
-                    return;
+                    return true;
                 case QuoteSensitivity.SqlLike:
                     while ((c = Input.Advance()) != '\0')
                         if (c == closing_quote)
                         {
                             if (!Input.NextCharIs(closing_quote))
-                                return;
+                                return true;
                             if (value != null)
                                 value.Append(c).Append(c);
                             Input.Advance();
@@ -1926,7 +1944,9 @@ namespace SpeedyTools
                     Exception exc2;
                     if (onMissingClosingQuote != null && (exc2 = onMissingClosingQuote(this)) != null)
                         throw exc2;
-                    return;
+                    return false;
+                default:
+                    return false;
             }
         }
 
