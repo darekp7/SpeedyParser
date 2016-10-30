@@ -1368,7 +1368,7 @@ namespace SpeedyTools
             char c = Input.GotoPrintChar();
             if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
                 return false;
-            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder(c);
+            StringBuilder value = VarNameIsSkipable(varName) ? null : new StringBuilder().Append(c);
             while (IsIdentChar(c = Input.Advance()))
                 if (value != null)
                     value.Append(c);
@@ -1389,7 +1389,7 @@ namespace SpeedyTools
             char c = Input.GotoPrintChar();
             if (!IsIdentChar(c) || (!mayStartWithDigit && char.IsDigit(c)))
                 return false;
-            StringBuilder value = (consumingAction != null) ? new StringBuilder(c) : null;
+            StringBuilder value = (consumingAction != null) ? new StringBuilder().Append(c) : null;
             while (IsIdentChar(c = Input.Advance()))
                 if (value != null)
                     value.Append(c);
@@ -2137,7 +2137,7 @@ namespace SpeedyTools
                 }
             if (needs_normalization)
             {
-                StringBuilder sb = new StringBuilder(str[0]);
+                StringBuilder sb = new StringBuilder().Append(str[0]);
                 for (int i = 1; i < str.Length; i++)
                     if (!char.IsWhiteSpace(str[i]))
                         sb.Append(str[i]);
