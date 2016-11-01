@@ -652,7 +652,7 @@ namespace SpeedyTools
             if (obj != null)
                 if (obj is string)
                 {
-                    string s_sentinel = NormalizeSpaces((obj as string) ?? "");
+                    string s_sentinel = Utils.NormalizeSpaces((obj as string) ?? "");
                     if (s_sentinel == "")
                         throw new ECompilationError(string.Format("Parameter {0} of function {1} should not be an empty string", paramInx + 1, callingFunction));
                     Sentinels.Add(s_sentinel, this);
@@ -666,7 +666,7 @@ namespace SpeedyTools
                     int i = 0;
                     foreach (string i_sentinel in sents)
                     {
-                        string sentinel = NormalizeSpaces(i_sentinel);
+                        string sentinel = Utils.NormalizeSpaces(i_sentinel);
                         Sentinels.Add(sentinel, this);
                         res[i++] = Expression.Constant(sentinel);
                     }
@@ -2080,33 +2080,6 @@ namespace SpeedyTools
             return true;
         }
 
-        /// <summary>
-        /// Trims the string and replaces whitespace sequences inside string by single spaces.
-        /// </summary>
-        public static string NormalizeSpaces(string str)
-        {
-            if ((str = (str ?? "").Trim()) == "")
-                return str;
-            bool needs_normalization = false;
-            for (int i = 1; i < str.Length; i++)
-                if (char.IsWhiteSpace(str[i]) && (str[i] != ' ' || char.IsWhiteSpace(str[i - 1])))
-                {
-                    needs_normalization = true;
-                    break;
-                }
-            if (needs_normalization)
-            {
-                StringBuilder sb = new StringBuilder().Append(str[0]);
-                for (int i = 1; i < str.Length; i++)
-                    if (!char.IsWhiteSpace(str[i]))
-                        sb.Append(str[i]);
-                    else if (!char.IsWhiteSpace(str[i - 1]))
-                        sb.Append(' ');
-                str = sb.ToString();
-            }
-            return str;
-        }
-
         protected int HashChar(char c)
         {
             return (int)(Options.IsCaseSensitive ? c : char.ToUpper(c));
@@ -2639,7 +2612,7 @@ namespace SpeedyTools
 
             public static string NormalizeSentinel(string sentinel)
             {
-                sentinel = NormalizeSpaces(sentinel);
+                sentinel = Utils.NormalizeSpaces(sentinel);
                 int endInx = sentinel.LastIndexOf("->");
                 return (endInx >= 0) ? sentinel.Substring(0, endInx).Trim() : sentinel;
             }
@@ -3034,7 +3007,51 @@ namespace SpeedyTools
                         GetValue(varName1, i), GetValue(varName2, i), GetValue(varName3, i), GetValue(varName4, i),
                         GetValue(varName5, i), GetValue(varName6, i), GetValue(varName7, i), i);
             }
+        }
 
+        public class Utils
+        {
+            /// <summary>
+            /// Trims the string and replaces whitespace sequences inside string by single spaces.
+            /// </summary>
+            public static string NormalizeSpaces(string str)
+            {
+                if ((str = (str ?? "").Trim()) == "")
+                    return str;
+                bool needs_normalization = false;
+                for (int i = 1; i < str.Length; i++)
+                    if (char.IsWhiteSpace(str[i]) && (str[i] != ' ' || char.IsWhiteSpace(str[i - 1])))
+                    {
+                        needs_normalization = true;
+                        break;
+                    }
+                if (needs_normalization)
+                {
+                    StringBuilder sb = new StringBuilder().Append(str[0]);
+                    for (int i = 1; i < str.Length; i++)
+                        if (!char.IsWhiteSpace(str[i]))
+                            sb.Append(str[i]);
+                        else if (!char.IsWhiteSpace(str[i - 1]))
+                            sb.Append(' ');
+                    str = sb.ToString();
+                }
+                return str;
+            }
+
+            /// <summary>
+            /// Test if the string is null or empty or build of whitespaces.
+            /// </summary>
+            /// <param name="str">string.</param>
+            /// <returns>true if if the string is null or empty or build of whitespaces, otherwise false.</returns>
+            public static bool IsWhiteSpaceOrEmpty(string str)
+            {
+                if (str == null)
+                    return true;
+                for (int i = 0; i < str.Length; i++)
+                    if (!Char.IsWhiteSpace(str[i]))
+                        return false;
+                return true;
+            }
         }
     }
 }
