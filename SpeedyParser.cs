@@ -736,23 +736,16 @@ namespace SpeedyTools
 
         protected bool If_implementation(string str, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
-            try
-            {
-                if (!(FIf_status = Test(str, consumeInput: true)))
-                    return true;
-                return ExecuteBody(body);
-            }
-            finally
-            {
-                Sentinels = saveSent;
-            }
+            if (!(FIf_status = Test(str, consumeInput: true)))
+                return true;
+            return ExecuteBody(body);
         }
 
         protected bool ExecuteBody(Func<bool>[] body)
         {
             if (body != null)
             {
+                SentinelsList saveSent = Sentinels.Clone();
                 bool saveSucc = FIf_status;
                 try
                 {
@@ -764,6 +757,7 @@ namespace SpeedyTools
                 finally
                 {
                     FIf_status = saveSucc;
+                    Sentinels = saveSent;
                 }
             }
             return true;
@@ -800,36 +794,9 @@ namespace SpeedyTools
 
         protected bool If_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
-            try
-            {
-                if (!(FIf_status = If_bool_TestCondition_Safe(condition)))
-                    return true;
-                return ExecuteBody(body);
-            }
-            finally
-            {
-                Sentinels = saveSent;
-            }
-        }
-
-        protected bool If_bool_TestCondition_Safe(Func<bool> condition)
-        {
-            Input.BeginRecord();
-            try
-            {
-                long savePos = Input.CurrentPos;
-                if (!condition())
-                {
-                    Input.GoToPos_Unsafe(savePos);
-                    return false;
-                }
-            }
-            finally
-            {
-                Input.EndRecord();
-            }
-            return true;
+            if (!(FIf_status = condition()))
+                return true;
+            return ExecuteBody(body);
         }
 
         /// <summary>
@@ -863,17 +830,9 @@ namespace SpeedyTools
 
         protected bool IfOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
-            try
-            {
-                if (!(FIf_status = TestOneOf(sentinels, consumeInput: true)))
-                    return true;
-                return ExecuteBody(body);
-            }
-            finally
-            {
-                Sentinels = saveSent;
-            }
+            if (!(FIf_status = TestOneOf(sentinels, consumeInput: true)))
+                return true;
+            return ExecuteBody(body);
         }
 
         /// <summary>
@@ -907,17 +866,9 @@ namespace SpeedyTools
 
         protected bool IfAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
-            try
-            {
-                if (!(FIf_status = TestAtLeastOneOf(sentinels)))
-                    return true;
-                return ExecuteBody(body);
-            }
-            finally
-            {
-                Sentinels = saveSent;
-            }
+            if (!(FIf_status = TestAtLeastOneOf(sentinels)))
+                return true;
+            return ExecuteBody(body);
         }
 
         /// <summary>
@@ -1005,7 +956,6 @@ namespace SpeedyTools
 
         protected bool While_implementation(string str, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
             long saveCounter = FCounter;
             try
             {
@@ -1016,7 +966,6 @@ namespace SpeedyTools
             }
             finally
             {
-                Sentinels = saveSent;
                 FCounter = saveCounter;
             }
         }
@@ -1034,18 +983,16 @@ namespace SpeedyTools
 
         protected bool While_bool_implementation(Func<bool> condition, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
             long saveCounter = FCounter;
             try
             {
-                for (StartCounter(); If_bool_TestCondition_Safe(condition); IncCounter())
+                for (StartCounter(); condition(); IncCounter())
                     if (!ExecuteBody(body))
                         return false;
                 return true;
             }
             finally
             {
-                Sentinels = saveSent;
                 FCounter = saveCounter;
             }
         }
@@ -1064,7 +1011,6 @@ namespace SpeedyTools
 
         protected bool WhileOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
             long saveCounter = FCounter;
             try
             {
@@ -1075,7 +1021,6 @@ namespace SpeedyTools
             }
             finally
             {
-                Sentinels = saveSent;
                 FCounter = saveCounter;
             }
         }
@@ -1094,7 +1039,6 @@ namespace SpeedyTools
 
         protected bool WhileAtLeastOneOf_implementation(string[] sentinels, Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
             long saveCounter = FCounter;
             try
             {
@@ -1105,7 +1049,6 @@ namespace SpeedyTools
             }
             finally
             {
-                Sentinels = saveSent;
                 FCounter = saveCounter;
             }
         }
@@ -1124,15 +1067,7 @@ namespace SpeedyTools
 
         protected bool Do_implementation(Func<bool>[] body)
         {
-            SentinelsList saveSent = Sentinels.Clone();
-            try
-            {
-                return ExecuteBody(body);
-            }
-            finally
-            {
-                Sentinels = saveSent;
-            }
+            return ExecuteBody(body);
         }
 
         /// <summary>
@@ -1172,6 +1107,7 @@ namespace SpeedyTools
                         return true;
                     Sentinels = saveSent;
                     Result = saveRes;
+                    FIf_status = saveIf_status;
                     Input.GoToPos_Unsafe(savePos);
                     if (i < alternatives.Length - 1)
                     {
@@ -1211,6 +1147,7 @@ namespace SpeedyTools
                     {
                         Sentinels = saveSent;
                         Result = saveRes;
+                        FIf_status = saveIf_status;
                         Input.GoToPos_Unsafe(savePos);
                         return false;
                     }
@@ -1225,6 +1162,59 @@ namespace SpeedyTools
             finally
             {
                 Input.EndRecord();
+                FIf_status = saveIf_status;
+            }
+        }
+
+        /// <summary>
+        /// Calls a subexpression.
+        /// </summary>
+        /// <param name="subExpressionName">name of the subexpression to be called,</param>
+        /// <returns>the value returned by the subexpression.</returns>
+        public bool Call(string subExpressionName)
+        {
+            var saveLocalVariables = CloneDict(LocalVariables);
+            bool saveIf_status = FIf_status;
+            try
+            {
+                Func<SpeedyParser, bool> val;
+                return (SubExpressions != null && SubExpressions.TryGetValue(subExpressionName, out val)) ? val(this) : false;
+            }
+            finally
+            {
+                FIf_status = saveIf_status;
+                LocalVariables = saveLocalVariables;
+            }
+        }
+
+        /// <summary>
+        /// Calls a subexpression.
+        /// </summary>
+        /// <param name="subExpressionName">name of the subexpression to be called,</param>
+        /// <param name="fold">folding function, which takes the last folding result in the first parameter (or null if
+        ///         no folding occured before) and </param>
+        /// <returns>the value returned by the subexpression.</returns>
+        public bool Call(string subExpressionName, Func<object, object, object> fold)
+        {
+            object saveRes = Result.FoldResult;
+            bool saveIf_status = FIf_status;
+            try
+            {
+                Result.FoldResult = null;
+                if (Call(subExpressionName) && fold != null)
+                {
+                    Result.FoldResult = fold(saveRes, Result.FoldResult);
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception)
+            {
+                Result.FoldResult = null;
+                throw;
+            }
+            finally
+            {
                 FIf_status = saveIf_status;
             }
         }
@@ -1722,57 +1712,6 @@ namespace SpeedyTools
                     SetVariable(varName, Input.GetInputSubstring_Unsafe(startPos, Input.CurrentPos).Trim());
             }
             return true;
-        }
-
-        /// <summary>
-        /// Calls a subexpression.
-        /// </summary>
-        /// <param name="subExpressionName">name of the subexpression to be called,</param>
-        /// <returns>the value returned by the subexpression.</returns>
-        public bool Call(string subExpressionName)
-        {
-            bool saveIf_status = FIf_status;
-            try
-            {
-                Func<SpeedyParser, bool> val;
-                return (SubExpressions != null && SubExpressions.TryGetValue(subExpressionName, out val)) ? val(this) : false;
-            }
-            finally
-            {
-                FIf_status = saveIf_status;
-            }
-        }
-
-        /// <summary>
-        /// Calls a subexpression.
-        /// </summary>
-        /// <param name="subExpressionName">name of the subexpression to be called,</param>
-        /// <param name="fold">folding function, which takes the last folding result in the first parameter (or null if
-        ///         no folding occured before) and </param>
-        /// <returns>the value returned by the subexpression.</returns>
-        public bool Call(string subExpressionName, Func<object, object, object> fold)
-        {
-            object saveRes = Result.FoldResult;
-            bool saveIf_status = FIf_status;
-            try
-            {
-                Result.FoldResult = null;
-                if (Call(subExpressionName) && fold != null)
-                {
-                    Result.FoldResult = fold(saveRes, Result.FoldResult);
-                    return true;
-                }
-                return false;
-            }
-            catch (Exception)
-            {
-                Result.FoldResult = null;
-                throw;
-            }
-            finally
-            {
-                FIf_status = saveIf_status;
-            }
         }
 
         /// <summary>
@@ -2554,10 +2493,11 @@ namespace SpeedyTools
             public override string ToString() // for debugging
             {
                 StringBuilder res = new StringBuilder("input: ");
-                for (int i = Math.Max((int)(FCurrentPos - FCurrentLineStart), 0); i < FCurrentLine.Length; i++)
+                int i_start = Math.Max((int)(FCurrentPos - FCurrentLineStart), 0); 
+                for (int i = i_start; i < FCurrentLine.Length; i++)
                 {
                     res.Append(FCurrentLine[i]);
-                    if (i >= 20)
+                    if (i - i_start >= 20)
                         return res.Append((i + 1 < FCurrentLine.Length) ? "(...)" : "").ToString();
                 }
                 return res.ToString();
