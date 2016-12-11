@@ -20,7 +20,7 @@ Imagine that you want to extract names of the tables used in SQL query. Intuitiv
 ```
 where `_columns` and `_condition` are unimportand pieces of text.
 
-The SpeedyParser code for this problem is like this:
+The SpeedyParser code solving this problem is like this:
 ```
     var options = new SpeedyParser.ParserOptions
     {
