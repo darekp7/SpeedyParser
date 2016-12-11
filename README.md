@@ -1,6 +1,7 @@
 ## Synopsis
 
-SpeedyParser is a simple and easy to learn parser which follows the intuitive way of defining grammar (see code example below).
+SpeedyParser is a simple and easy to learn parser which follows the intuitive way of defining grammar (see code example below). It has quite good 
+performance because the whole parser's code is compiled in SpeedyParser's constructor.
 
 ## Code Example
 
@@ -17,7 +18,7 @@ Imagine that you want to extract names of the tables used in SQL query. Intuitiv
         ]?
     ]?
 ```
-where _columns and _condition are unimportand pieces of text.
+where `_columns` and `_condition` are unimportand pieces of text.
 
 The SpeedyParser code for this problem is like this:
 ```
@@ -28,6 +29,7 @@ The SpeedyParser code for this problem is like this:
         SingleQuoteSensitivity = SpeedyParser.QuoteSensitivity.SqlLike,
         Comments = new[] { new Tuple<string,string>("--", "") }
     };
+    
     var p = new SpeedyParser(options, p => 
         p.If("SELECT",
             p.Span("_columns"),
