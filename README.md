@@ -40,8 +40,7 @@ The SpeedyParser code solving this problem is like this:
                     p.If("ON",
                         p.Span("_condition"))),
                 p.If("WHERE",
-                        p.Span("_condition")))
-        )
+                        p.Span("_condition"))))
         && p.Eof);
 ```
 
@@ -55,7 +54,7 @@ Just add SpeedyParser.cs to your project and enjoy.
 
 ## API Reference
 
-Coming (not so) soon ;-)
+Coming (not so?) soon ;-)
 
 ## License
 
