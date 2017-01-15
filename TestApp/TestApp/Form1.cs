@@ -41,7 +41,9 @@ namespace TestApp
                 )
                 && p.Eof);
 
-            string query = "select * from employee";
+            string query = "select Orders.*"
+                        + " from Orders join Customers on Orders.CustomerID = Customers.CustomerID"
+                        + " where Customers.ContactName = 'ACME'";
             var matchResult = parser.TryMatch(query);
             if (matchResult.Success)
             {
