@@ -41,7 +41,7 @@ namespace TestApp
                 )
                 && p.Eof);
 
-            string query = "select Orders.*"
+            string query = "select Orders.*, (select x from y) as z"
                         + " from Orders join Customers on Orders.CustomerID = Customers.CustomerID"
                         + " where Customers.ContactName = 'ACME'";
             var matchResult = parser.TryMatch(query);
