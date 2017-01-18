@@ -3052,6 +3052,23 @@ namespace SpeedyTools
                         return false;
                 return true;
             }
+
+            /// <summary>
+            /// Counts the number of whitespaces before first printable char in string. If the string is empty 
+            /// or it consists solely of whitespaces, the default value is returned.
+            /// </summary>
+            /// <param name="str">the string.</param>
+            /// <param name="defaultValue">the default value.</param>
+            /// <returns>If the string is empty or it consists solely of whitespaces, the default value is returned.</returns>
+            public static int GetIndentOf(string str, int defaultValue)
+            {
+                if (str == null)
+                    return defaultValue;
+                for (int i = 0; i < str.Length; i++)
+                    if (!Char.IsWhiteSpace(str[i]))
+                        return i;
+                return defaultValue;
+            }
         }
     }
 }
