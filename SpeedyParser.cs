@@ -3069,6 +3069,123 @@ namespace SpeedyTools
                         return i;
                 return defaultValue;
             }
+
+            public static string Escape(string str, bool escapeSpace = false, bool escapePipe = false)
+            {
+                if (str == null || str.Length == 0)
+                    return str;
+                StringBuilder res = new StringBuilder();
+                foreach (char c in str)
+                    switch (c)
+                    {
+                        case '\'':
+                            res.Append("\\'");
+                            break;
+                        case '"':
+                            res.Append("\\\"");
+                            break;
+                        case '\\':
+                            res.Append("\\\\");
+                            break;
+                        case ' ':
+                            res.Append(escapeSpace ? "\\_" : " ");
+                            break;
+                        case '|':
+                            res.Append(escapePipe ? "\\!" : "|");
+                            break;
+                        case '\0': 
+                            res.Append("\\0");
+                            break;
+                        case '\a':
+                            res.Append("\\a");
+                            break;
+                        case '\b':
+                            res.Append("\\b");
+                            break;
+                        case '\f':
+                            res.Append("\\f");
+                            break;
+                        case '\n':
+                            res.Append("\\n");
+                            break;
+                        case '\r':
+                            res.Append("\\r");
+                            break;
+                        case '\t':
+                            res.Append("\\t");
+                            break;
+                        /*case 'u': todo
+                        case 'U':
+                        case 'x':*/
+                        case '\v':
+                            res.Append("\\v");
+                            break;
+                        default:
+                            res.Append(c);
+                            break;
+                    }
+                return res.ToString();
+            }
+
+            public static string Unescape(string str, bool unescapeSpace = false, bool unescapePipe = false)
+            {
+                if (str == null || str.Length == 0 || str.IndexOf('\\') < 0)
+                    return str;
+                StringBuilder res = new StringBuilder();
+                for (int i = 0; i < str.Length; i++)
+                    if (str[i] != '\\' || i >= str.Length - 1)
+                        res.Append(str[i]);
+                    else
+                        switch (str[++i])
+                        {
+                            case '\'':
+                                res.Append('\'');
+                                break;
+                            case '"':
+                                res.Append('"');
+                                break;
+                            case '\\':
+                                res.Append('\\');
+                                break;
+                            case '_':
+                                res.Append(unescapeSpace ? ' ' : str[i]);
+                                break;
+                            case '!':
+                                res.Append(unescapePipe? '|' : str[i]);
+                                break;
+                            case '0': // todo
+                                res.Append('\0');
+                                break;
+                            case 'a':
+                                res.Append('\a');
+                                break;
+                            case 'b':
+                                res.Append('\b');
+                                break;
+                            case 'f':
+                                res.Append('\f');
+                                break;
+                            case 'n':
+                                res.Append('\n');
+                                break;
+                            case 'r':
+                                res.Append('\r');
+                                break;
+                            case 't':
+                                res.Append('\t');
+                                break;
+                            /*case 'u': todo
+                            case 'U':
+                            case 'x':*/
+                            case 'v':
+                                res.Append('\v');
+                                break;
+                            default:
+                                res.Append('\\').Append(str[i]);
+                                break;
+                        }
+                return res.ToString();
+            }
         }
     }
 }
